@@ -1,0 +1,169 @@
+- main [ref=e6]:
+  - generic [ref=e7]:
+    - heading "📊 Live Option Chain Dashboard" [level=1] [ref=e12]
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e16]:
+          - generic [ref=e17]: Underlying
+          - generic [ref=e20]:
+            - listbox "Underlying" [ref=e21]: NIFTY
+            - generic:
+              - img
+        - generic [ref=e23]:
+          - generic [ref=e24]: Expiry Index
+          - spinbutton "Expiry Index" [ref=e25]: "0"
+        - generic [ref=e27]:
+          - generic [ref=e28]:
+            - generic [ref=e30]: Strikes ± ATM
+            - generic [ref=e31]:
+              - spinbutton "number input for Strikes ± ATM" [ref=e32]: "15"
+              - button "Reset to default value" [ref=e33] [cursor=pointer]: ↺
+          - generic [ref=e34]:
+            - generic [ref=e35]: "5"
+            - slider "range slider for Strikes ± ATM" [ref=e36] [cursor=pointer]: "15"
+            - generic [ref=e37]: "25"
+      - button "🔄 Refresh" [ref=e38] [cursor=pointer]
+      - generic [ref=e40]:
+        - generic [ref=e41] [cursor=pointer]:
+          - checkbox "🧪 Weekend Mock Mode" [ref=e42]
+          - generic [ref=e43]: 🧪 Weekend Mock Mode
+        - paragraph [ref=e46]: Simulate prev-day OI for 📊+📈 panel when market is closed
+    - generic [ref=e50]:
+      - generic [ref=e51]: Loading Option Chain Data...
+      - generic [ref=e52]: Fetching live data from NSE
+    - generic [ref=e57]:
+      - generic [ref=e58]:
+        - generic [ref=e59]:
+          - button [ref=e60] [cursor=pointer]: 📊+📈 Live
+          - button [ref=e61] [cursor=pointer]: "OI #2"
+          - button [ref=e62] [cursor=pointer]: "OI #3"
+          - button [ref=e63] [cursor=pointer]: "OI #4"
+          - button [ref=e64] [cursor=pointer]: "OI #5"
+          - button [ref=e65] [cursor=pointer]: "OI #6"
+          - button [ref=e66] [cursor=pointer]: "OI #7"
+          - button [ref=e67] [cursor=pointer]: "OI #8"
+          - button [ref=e68] [cursor=pointer]: "OI #9"
+          - button [ref=e69] [cursor=pointer]: "OI #10"
+          - button [ref=e70] [cursor=pointer]: "OI #11"
+          - button [ref=e71] [cursor=pointer]: "OI #12"
+          - button [ref=e72] [cursor=pointer]: "OI #13"
+          - button [ref=e73] [cursor=pointer]: "OI #14"
+          - button [ref=e74] [cursor=pointer]: "OI #15"
+        - tablist [ref=e75]:
+          - tab "📊+📈 Live" [selected] [ref=e76] [cursor=pointer]
+          - 'tab "OI #2" [ref=e77] [cursor=pointer]'
+          - 'tab "OI #3" [ref=e78] [cursor=pointer]'
+          - 'tab "OI #4" [ref=e79] [cursor=pointer]'
+          - 'tab "OI #5" [ref=e80] [cursor=pointer]'
+          - 'tab "OI #6" [ref=e81] [cursor=pointer]'
+          - 'tab "OI #7" [ref=e82] [cursor=pointer]'
+          - 'tab "OI #8" [ref=e83] [cursor=pointer]'
+          - 'tab "OI #9" [ref=e84] [cursor=pointer]'
+          - 'tab "OI #10" [ref=e85] [cursor=pointer]'
+          - 'tab "OI #11" [ref=e86] [cursor=pointer]'
+          - 'tab "OI #12" [ref=e87] [cursor=pointer]'
+          - 'tab "OI #13" [ref=e88] [cursor=pointer]'
+          - 'tab "OI #14" [ref=e89] [cursor=pointer]'
+          - 'tab "OI #15" [ref=e90] [cursor=pointer]'
+      - tabpanel [ref=e91]
+    - generic [ref=e95]:
+      - generic [ref=e96]:
+        - generic [ref=e97]:
+          - button [ref=e98] [cursor=pointer]: 📊 Live
+          - button [ref=e99] [cursor=pointer]: "OC #2"
+          - button [ref=e100] [cursor=pointer]: "OC #3"
+          - button [ref=e101] [cursor=pointer]: "OC #4"
+          - button [ref=e102] [cursor=pointer]: "OC #5"
+          - button [ref=e103] [cursor=pointer]: "OC #6"
+          - button [ref=e104] [cursor=pointer]: "OC #7"
+          - button [ref=e105] [cursor=pointer]: "OC #8"
+          - button [ref=e106] [cursor=pointer]: "OC #9"
+          - button [ref=e107] [cursor=pointer]: "OC #10"
+          - button [ref=e108] [cursor=pointer]: "OC #11"
+          - button [ref=e109] [cursor=pointer]: "OC #12"
+          - button [ref=e110] [cursor=pointer]: "OC #13"
+          - button [ref=e111] [cursor=pointer]: "OC #14"
+          - button [ref=e112] [cursor=pointer]: "OC #15"
+        - tablist [ref=e113]:
+          - tab "📊 Live" [selected] [ref=e114] [cursor=pointer]
+          - 'tab "OC #2" [ref=e115] [cursor=pointer]'
+          - 'tab "OC #3" [ref=e116] [cursor=pointer]'
+          - 'tab "OC #4" [ref=e117] [cursor=pointer]'
+          - 'tab "OC #5" [ref=e118] [cursor=pointer]'
+          - 'tab "OC #6" [ref=e119] [cursor=pointer]'
+          - 'tab "OC #7" [ref=e120] [cursor=pointer]'
+          - 'tab "OC #8" [ref=e121] [cursor=pointer]'
+          - 'tab "OC #9" [ref=e122] [cursor=pointer]'
+          - 'tab "OC #10" [ref=e123] [cursor=pointer]'
+          - 'tab "OC #11" [ref=e124] [cursor=pointer]'
+          - 'tab "OC #12" [ref=e125] [cursor=pointer]'
+          - 'tab "OC #13" [ref=e126] [cursor=pointer]'
+          - 'tab "OC #14" [ref=e127] [cursor=pointer]'
+          - 'tab "OC #15" [ref=e128] [cursor=pointer]'
+      - tabpanel [ref=e129]
+    - generic [ref=e137]:
+      - generic [ref=e138]:
+        - generic:
+          - generic:
+            - img
+          - text: 📈 15-Min Straddle — Current Expiry
+        - generic "Empty value" [ref=e139]:
+          - img [ref=e141]
+      - generic [ref=e148]:
+        - generic:
+          - generic:
+            - img
+          - text: 📈 15-Min Straddle — Next Expiry
+        - generic "Empty value" [ref=e149]:
+          - img [ref=e151]
+    - generic [ref=e158]:
+      - generic [ref=e159]:
+        - generic:
+          - generic:
+            - img
+          - text: 📈 5-Min Straddle — Current Expiry
+        - generic "Empty value" [ref=e160]:
+          - img [ref=e162]
+      - generic [ref=e169]:
+        - generic:
+          - generic:
+            - img
+          - text: 📈 5-Min Straddle — Next Expiry
+        - generic "Empty value" [ref=e170]:
+          - img [ref=e172]
+    - generic [ref=e181]:
+      - generic [ref=e182]:
+        - generic:
+          - generic:
+            - img
+          - text: 📈 5-Min Straddle — ↓ −1 Strike │ VWAP + RSI
+        - generic "Empty value" [ref=e183]:
+          - img [ref=e185]
+      - generic [ref=e192]:
+        - generic:
+          - generic:
+            - img
+          - text: 📈 5-Min Straddle — ATM Strike │ VWAP + RSI
+        - generic "Empty value" [ref=e193]:
+          - img [ref=e195]
+      - generic [ref=e202]:
+        - generic:
+          - generic:
+            - img
+          - text: 📈 5-Min Straddle — ↑ +1 Strike │ VWAP + RSI
+        - generic "Empty value" [ref=e203]:
+          - img [ref=e205]
+    - generic [ref=e212]:
+      - generic:
+        - generic:
+          - img
+        - text: 🕯 5-Min Candlestick — EMA(5) High & EMA(5) Low
+      - generic "Empty value" [ref=e213]:
+        - img [ref=e215]
+    - generic [ref=e222]:
+      - generic:
+        - generic:
+          - img
+        - text: 🕯📊 5-Min Candle + EMA(5) Band + OI Distribution
+      - generic "Empty value" [ref=e223]:
+        - img [ref=e225]

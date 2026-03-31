@@ -1,0 +1,25 @@
+<div class="oc-tfi">
+  <h2 class="oc-tfi__title">
+    📐 $underlying Multi-Timeframe Indicators
+    &nbsp;&nbsp;<span class="oc-tfi__ltp-label">
+    + LTP: <span class="oc-tfi__ltp-val">$ltp_str</span></span>
+  </h2>
+  <div class="oc-tfi__scroll">
+    <table class="oc-tfi__table">
+      <thead><tr>
+        <th class="oc-tfi__th">Timeframe</th>
+        <th class="oc-tfi__th">RSI (14)</th>
+        <th class="oc-tfi__th">MACD / Signal &middot; Zone</th>
+        <th class="oc-tfi__th">34-EMA &nbsp;/&nbsp; 61-EMA</th>
+      </tr></thead>
+      <tbody>$rows_html</tbody>
+    </table>
+  </div>
+  <div class="oc-tfi__legend">
+    <span class="swatch-bull">■</span> Bullish (MACD&gt;Signal / 34-EMA&gt;61-EMA)&nbsp;&nbsp;
+    <span class="swatch-bear">■</span> Bearish (MACD&lt;Signal / 34-EMA&lt;61-EMA)&nbsp;&nbsp;
+    <span class="swatch-rsi-mid">■</span> RSI 50-70&nbsp;&nbsp;
+    <span class="swatch-rsi-low">■</span> RSI 30-50&nbsp;&nbsp;
+    <span class="swatch-rsi-50">■</span> RSI ~50
+  </div>
+</div>

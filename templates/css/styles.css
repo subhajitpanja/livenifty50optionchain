@@ -1,0 +1,853 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Option Chain Gradio Dashboard — Master Stylesheet
+   Single source of truth for all dashboard CSS.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── CSS Custom Properties ────────────────────────────────────────────── */
+:root, .oc-root {
+    --oc-h1-clr: #e0e0ff;
+    --oc-h2-clr: #ffd700;
+    --oc-h3-clr: #b0bec5;
+    --oc-text: #cfd8dc;
+    --oc-muted: #9aa4ad;
+    --oc-panel-bg: #0e1117;
+    --oc-panel-alt: #1a1a2e;
+}
+
+/* ── Gradio-level overrides ───────────────────────────────────────────── */
+.gradio-container {
+    max-width: none !important;
+    width: 96% !important;
+    margin: 0 auto !important;
+    padding-right: 0 !important;
+}
+html, body { margin: 0; padding: 0; }
+body { background: #f6f6f7; }
+footer { display: none !important; }
+.gradio-container .container,
+.gradio-container .gradio-row,
+.gradio-container .gradio-columns { padding-right: 0 !important; }
+* { transition: none !important; animation: none !important; -webkit-transition: none !important; }
+
+/* ── Prevent Gradio loading fade/opacity on interval refreshes ─────── */
+.wrap.generating,
+.wrap.translucent,
+.pending,
+.generating,
+.translucent,
+.eta-bar,
+.progress-bar,
+.progress-text,
+.meta-text,
+.meta-text-center,
+.svelte-1kcgrqx,
+.wrap.svelte-1kcgrqx {
+    opacity: 1 !important;
+    filter: none !important;
+    pointer-events: auto !important;
+}
+.gradio-container .pending {
+    opacity: 1 !important;
+}
+/* Hide the loading spinner overlay entirely */
+.wrap.generating::before,
+.wrap.generating::after,
+.progress-bar,
+.progress-text {
+    display: none !important;
+    visibility: hidden !important;
+}
+
+/* ── Panel base (shared across all sections) ──────────────────────────── */
+.oc-panel {
+    font-family: sans-serif;
+    padding: 8px;
+    background: #0e1117;
+    border-radius: 8px;
+    border: 1px solid #444;
+}
+.oc-panel--mt { margin-top: 4px; }
+
+/* ── Section titles ───────────────────────────────────────────────────── */
+.oc-section-title {
+    font-size: 14px;
+    margin: 0 0 4px 0;
+    font-weight: 700;
+}
+.oc-section-title--h1 { font-size: 16px; color: var(--oc-h1-clr, #e0e0ff); }
+.oc-section-title--h2 { font-size: 14px; color: var(--oc-h2-clr, #ffd700); }
+.oc-section-title--mb { margin-bottom: 6px; }
+
+/* ── Header ───────────────────────────────────────────────────────────── */
+.oc-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.oc-title {
+    font-size: 16px;
+    margin: 0;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+    color: var(--oc-h1-clr, #e0e0ff);
+}
+.oc-timestamp {
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+.oc-header-body {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+.oc-boxes {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+/* ── Small box (SPOT / ATM / EXPIRY / VIX / FUT) ─────────────────────── */
+.oc-small-box {
+    background: #1a1a2e;
+    padding: 5px 10px;
+    border-radius: 5px;
+    border: 1px solid #444;
+}
+.oc-small-box__label {
+    color: #999;
+    font-size: 10px;
+}
+.oc-small-box__value {
+    font-weight: 700;
+    font-size: 15px;
+}
+/* ── SPOT change (below value) ───────────────────────────────────────── */
+.oc-spot-chg {
+    font-size: 10px;
+    font-weight: 600;
+    margin-top: 1px;
+}
+.oc-spot-chg--up { color: #00e676; }
+.oc-spot-chg--down { color: #ef5350; }
+
+/* ── Opening cards container ──────────────────────────────────────────── */
+.oc-opening-cards {
+    display: flex;
+    gap: 8px;
+    flex-wrap: nowrap;
+    margin: 0;
+}
+
+/* ── Card base ────────────────────────────────────────────────────────── */
+.oc-card {
+    flex: 1;
+    min-width: 100px;
+    max-width: 300px;
+    padding: 5px 10px;
+    border-radius: 5px;
+    border: 1px solid #444;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+.oc-card--day-open {
+    flex: 0 0 auto;
+    background: linear-gradient(135deg, #0f1116, #151824);
+}
+.oc-card--straddle-open {
+    background: linear-gradient(135deg, #081018, #0e1720);
+}
+.oc-card--straddle-live {
+    min-width: 140px;
+    background: linear-gradient(135deg, #1a1a2e, #22223a);
+}
+.oc-card__label {
+    color: #999;
+    font-size: 10px;
+    margin-bottom: 2px;
+}
+.oc-card__value {
+    font-size: 15px;
+    font-weight: 700;
+}
+.oc-card__value--gold   { color: #ffd700; }
+.oc-card__value--green  { color: #00e676; }
+.oc-card__value--blue   { color: #42a5f5; }
+.oc-card__sub {
+    color: #aaa;
+    font-size: 10px;
+    margin-top: -2px;
+}
+.oc-card__sub-val { color: #fff; }
+
+/* ── OI History panel ─────────────────────────────────────────────────── */
+.oi-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+}
+.oi-ts {
+    color: #888;
+    font-size: 11px;
+    width: 65px;
+    flex-shrink: 0;
+    font-family: Consolas, monospace;
+}
+.oi-text {
+    font-size: 12px;
+    white-space: nowrap;
+    min-width: 220px;
+    color: #e0e0e0;
+}
+.oi-text .muted { color: #ddd; }
+.oi-text .val { font-weight: 700; }
+.oi-text .val--green { color: #00e676; }
+.oi-text .val--red   { color: #ef5350; }
+.oi-bar {
+    flex: 1;
+    height: 16px;
+    display: flex;
+    border-radius: 3px;
+    overflow: hidden;
+    min-width: 120px;
+}
+.oi-bar__bull {
+    background: #1a5c1a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.oi-bar__bear {
+    background: #7a1a1a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.oi-bar__label {
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+}
+
+/* ── Option Chain table ───────────────────────────────────────────────── */
+.oc-table__panel {
+    margin-top: 4px;
+    background: #0e1117;
+    border-radius: 8px;
+    border: 1px solid #444;
+    padding: 8px;
+}
+.oc-table__title {
+    font-size: 14px;
+    margin: 0 0 4px 0;
+    font-weight: 700;
+    color: var(--oc-h2-clr, #ffd700);
+}
+.oc-table__wrapper { overflow-x: auto; }
+.oc-table__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: #0e1117;
+    font-family: Consolas, monospace;
+}
+
+/* label row: CALLS / Strike / PUTS */
+.oc-table__label-calls {
+    text-align: center;
+    color: #ff6b6b;
+    font-weight: 700;
+    font-size: 12px;
+    padding: 3px;
+    border-bottom: 2px solid #555;
+}
+.oc-table__label-strike {
+    text-align: center;
+    font-weight: 700;
+    font-size: 12px;
+    padding: 3px;
+    border-bottom: 2px solid #555;
+    color: var(--oc-h2-clr, #ffd700);
+}
+.oc-table__label-puts {
+    text-align: center;
+    color: #69f0ae;
+    font-weight: 700;
+    font-size: 12px;
+    padding: 3px;
+    border-bottom: 2px solid #555;
+}
+
+/* header cells */
+.oc-table__th {
+    background: #1a1a2e;
+    padding: 3px 5px;
+    font-size: 11px;
+    border-bottom: 2px solid #555;
+    white-space: nowrap;
+}
+.oc-table__th--call   { color: #ff6b6b; }
+.oc-table__th--strike { color: #ffd700; }
+.oc-table__th--put    { color: #69f0ae; }
+
+/* data rows */
+.oc-table__row { border-bottom: 1px solid #333; }
+.oc-table__row--atm {
+    background: rgba(255, 255, 255, 0.3) !important;
+    outline: rgba(255, 255, 255, 0.3) solid 1px;
+}
+.oc-table__td {
+    padding: 2px 5px;
+    white-space: nowrap;
+}
+.oc-table__td--right  { text-align: right; }
+.oc-table__td--center { text-align: center; }
+.oc-table__td--bold   { font-weight: 700; }
+
+/* ── Futures table ────────────────────────────────────────────────────── */
+.oc-futures__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-top: 4px;
+}
+.oc-futures__th {
+    background: #1a1a2e;
+    color: #ffd700;
+    padding: 4px 6px;
+    text-align: right;
+    border-bottom: 2px solid #555;
+    font-size: 11px;
+}
+.oc-futures__row { border-bottom: 1px solid #333; }
+.oc-futures__td {
+    padding: 3px 6px;
+}
+.oc-futures__td--right { text-align: right; }
+.oc-futures__td--bold  { font-weight: 700; }
+.oc-futures__td--ddd   { color: #ddd; }
+.oc-futures__td--exp   { color: #42a5f5; }
+
+/* ── OI Bar chart ─────────────────────────────────────────────────────── */
+.oc-chart {
+    font-family: sans-serif;
+    background: #0e1117;
+    border-radius: 8px;
+    border: 1px solid #444;
+    padding: 8px;
+}
+.oc-chart__title {
+    font-size: 16px;
+    margin: 0 0 4px 0;
+    font-weight: 700;
+    color: var(--oc-h2-clr, #ffd700);
+}
+.oc-chart__subtitle {
+    font-size: 12px;
+    margin-bottom: 6px;
+    color: var(--oc-h3-clr, #b0bec5);
+}
+.oc-chart__body {
+    display: flex;
+}
+.oc-chart__yticks {
+    width: 50px;
+    position: relative;
+    flex-shrink: 0;
+}
+.oc-ytick {
+    position: absolute;
+    right: 2px;
+    transform: translateY(50%);
+    font-size: 12px;
+    color: #fff;
+    font-weight: 600;
+    white-space: nowrap;
+    line-height: 1;
+}
+.oc-chart__canvas {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+.oc-grid-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+}
+.oc-grid-line--solid  { border-bottom: 1px solid  #333; }
+.oc-grid-line--dashed { border-bottom: 1px dashed #333; }
+.oc-chart__bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 0;
+}
+
+/* bar column */
+.oc-bar-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    min-width: 0;
+}
+.oc-bar-stack {
+    display: flex;
+    align-items: flex-end;
+    gap: 1px;
+    width: 100%;
+}
+.bar-put {
+    flex: 1;
+    border-radius: 2px 2px 0 0;
+}
+.bar-call {
+    flex: 1;
+    border-radius: 2px 2px 0 0;
+}
+.bar-put--fill  { background: var(--put-bar, #26a69a); }
+.bar-call--fill { background: var(--call-bar, #ef5350); }
+.bar-put--hatch {
+    background: var(--put-bar, #26a69a);
+    background-image: repeating-linear-gradient(45deg, #0e1117 0px, #0e1117 3px, transparent 3px, transparent 8px);
+}
+.bar-call--hatch {
+    background: var(--call-bar, #ef5350);
+    background-image: repeating-linear-gradient(45deg, #0e1117 0px, #0e1117 3px, transparent 3px, transparent 8px);
+}
+.bar-put--hollow {
+    background: transparent;
+    border: 0.5px solid var(--put-bar, #26a69a);
+    box-sizing: border-box;
+}
+.bar-call--hollow {
+    background: transparent;
+    border: 0.5px solid var(--call-bar, #ef5350);
+    box-sizing: border-box;
+}
+
+/* ATM marker */
+.atm-line {
+    position: absolute;
+    top: -2px;
+    bottom: -28px;
+    left: 50%;
+    border-left: 2px dashed #FFD700;
+    z-index: 5;
+    pointer-events: none;
+}
+
+/* strike label below bars */
+.strike-label {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    height: 60px;
+    font-size: 15px;
+    color: #fff;
+    line-height: 1;
+    margin-top: 2px;
+    text-align: right;
+}
+.strike-label--atm {
+    font-weight: 700;
+    color: #FFD700;
+}
+
+/* spot display */
+.oc-spot-display {
+    text-align: center;
+    color: #ffd700;
+    font-size: 14px;
+    font-weight: 700;
+    margin-top: 22px;
+}
+
+/* legend */
+.oc-chart__legend {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    font-size: 9px;
+    margin-top: 4px;
+    color: #fff;
+}
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    color: #fff;
+}
+.legend-swatch {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 1px;
+}
+.swatch-put--fill {
+    background: var(--put-bar, #26a69a);
+}
+.swatch-call--fill {
+    background: var(--call-bar, #ef5350);
+}
+.swatch-put--hatch {
+    background: var(--put-bar, #26a69a);
+    background-image: repeating-linear-gradient(45deg, #0e1117 0px, #0e1117 3px, transparent 3px, transparent 8px);
+}
+.swatch-call--hatch {
+    background: var(--call-bar, #ef5350);
+    background-image: repeating-linear-gradient(45deg, #0e1117 0px, #0e1117 3px, transparent 3px, transparent 8px);
+}
+.swatch-put--outline {
+    border: 1.5px solid var(--put-bar, #26a69a);
+}
+.swatch-call--outline {
+    border: 1.5px solid var(--call-bar, #ef5350);
+}
+.atm-legend {
+    color: #FFD700;
+    font-size: 9px;
+}
+
+/* ── Combined bar (vertically stacked segments inside each put/call slot) */
+.oc-combined-bar {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: stretch;
+    min-width: 0;
+}
+/* Remove inherited flex:1 so segments size by explicit height only */
+.oc-combined-bar .bar-put,
+.oc-combined-bar .bar-call {
+    flex: none;
+    width: 100%;
+    border-radius: 0 !important;
+}
+
+/* ── OI Charts wrapper ────────────────────────────────────────────────── */
+.oc-charts-wrap { margin-top: 4px; }
+.oc-charts-gap  { margin-top: 8px; }
+.oc-charts-combined-wrap { margin-top: 8px; }
+
+/* ── Analytics ────────────────────────────────────────────────────────── */
+.oc-analytics__row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+}
+.oc-analytics__card {
+    flex: 1;
+    background: #1a1a2e;
+    padding: 6px;
+    border-radius: 5px;
+    border: 1px solid #444;
+    min-width: 240px;
+}
+.oc-analytics__card-title {
+    font-weight: 700;
+    font-size: 12px;
+    margin: 0 0 3px 0;
+    color: var(--oc-h2-clr, #ffd700);
+}
+.oc-analytics__table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.oc-analytics__th {
+    text-align: left;
+    color: #999;
+    padding: 2px;
+    border-bottom: 1px solid #444;
+    font-size: 10px;
+}
+.oc-analytics__th--right { text-align: right; }
+.oc-analytics__th--call  { color: #ff6b6b; }
+.oc-analytics__th--put   { color: #69f0ae; }
+.oc-analytics__th--net   { color: #ffd700; }
+.oc-analytics__td {
+    padding: 2px;
+    font-size: 11px;
+}
+.oc-analytics__td--label { color: #ddd; }
+.oc-analytics__td--right { text-align: right; }
+.oc-analytics__td--call  { color: #ff6b6b; }
+.oc-analytics__td--put   { color: #69f0ae; }
+.oc-analytics__td--bold  { font-weight: 700; }
+
+/* ── Error message ────────────────────────────────────────────────────── */
+.oc-error {
+    color: #ef5350;
+    padding: 20px;
+}
+.oc-no-data {
+    color: #ffa726;
+}
+
+/* ── Inline value helpers (VIX change, FUT expiry) ────────────────────── */
+.oc-vix-chg {
+    font-size: 11px;
+}
+.oc-vix-chg--up   { color: #00e676; }
+.oc-vix-chg--down { color: #ef5350; }
+.oc-vix-chg--stale { color: #888; }
+.oc-fut-expiry {
+    color: #999;
+    font-size: 10px;
+}
+
+/* ── OC Tab timestamp below label ─────────────────────────────────────── */
+#oc-ts-wrapper { display: none !important; height: 0 !important; overflow: hidden !important; }
+#oc-tabs .tab-wrapper { height: auto !important; min-height: 32px !important; }
+#oc-tabs .tab-container { overflow: visible !important; height: auto !important; }
+#oc-tabs [role="tablist"] {
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 32px;
+}
+#oc-tabs button[role="tab"][data-oc-ts] {
+    flex-direction: column !important;
+    align-items: center !important;
+    white-space: normal !important;
+    line-height: 1.2 !important;
+    padding: 6px 10px 4px !important;
+    min-width: 75px !important;
+    height: auto !important;
+    min-height: 44px !important;
+}
+#oc-tabs button[role="tab"][data-oc-ts]::before {
+    content: attr(data-oc-ts);
+    display: block;
+    font-size: 9px;
+    color: #999;
+    font-weight: 400;
+    margin-top: 1px;
+    order: 99;
+}
+/* Overflow dropdown tabs — timestamp styling */
+#oc-tabs .overflow-dropdown button[data-oc-ts]::after {
+    content: " (" attr(data-oc-ts) ")";
+    font-size: 9px;
+    color: #999;
+    font-weight: 400;
+}
+/* ── OI Distribution Tab timestamp below label ────────────────────────── */
+#oi-dist-ts-wrapper { display: none !important; height: 0 !important; overflow: hidden !important; }
+#oi-dist-tabs .tab-wrapper { height: auto !important; min-height: 32px !important; }
+#oi-dist-tabs .tab-container { overflow: visible !important; height: auto !important; }
+#oi-dist-tabs [role="tablist"] {
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 32px;
+}
+#oi-dist-tabs button[role="tab"][data-oc-ts] {
+    flex-direction: column !important;
+    align-items: center !important;
+    white-space: normal !important;
+    line-height: 1.2 !important;
+    padding: 6px 10px 4px !important;
+    min-width: 75px !important;
+    height: auto !important;
+    min-height: 44px !important;
+}
+#oi-dist-tabs button[role="tab"][data-oc-ts]::before {
+    content: attr(data-oc-ts);
+    display: block;
+    font-size: 9px;
+    color: #999;
+    font-weight: 400;
+    margin-top: 1px;
+    order: 99;
+}
+#oi-dist-tabs .overflow-dropdown button[data-oc-ts]::after {
+    content: " (" attr(data-oc-ts) ")";
+    font-size: 9px;
+    color: #999;
+    font-weight: 400;
+}
+/* ═══════════════════════════════════════════════════════════════════════════
+   Utility & Component Classes (standardised)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Futures: buildup highlight cell ──────────────────────────────────── */
+.oc-futures__td--buildup { color: #000; border-radius: 4px; }
+
+/* ── OC Table: buildup & rank cells ───────────────────────────────────── */
+.oc-table__td--buildup { color: #000; border-radius: 4px; }
+.oc-table__td--rank    { border-radius: 4px; }
+
+/* ── OI Chart: gridline overlay ───────────────────────────────────────── */
+.oc-chart__gridline-overlay {
+    position: absolute;
+    top: 0; bottom: 0; left: 0; right: 0;
+    pointer-events: none;
+}
+
+/* ── TF Indicators ────────────────────────────────────────────────────── */
+.oc-tfi {
+    background: var(--oc-panel-bg, #0e1117);
+    border-radius: 10px;
+    border: 1px solid #1e2530;
+    padding: 16px;
+    margin-top: 12px;
+    font-family: Inter, sans-serif;
+}
+.oc-tfi__title {
+    color: var(--oc-h2-clr, #ffd700);
+    font-size: 15px;
+    margin: 0 0 12px 0;
+}
+.oc-tfi__ltp-label {
+    color: #fff;
+    font-weight: 400;
+    font-size: 14px;
+}
+.oc-tfi__ltp-val { color: #00e676; }
+.oc-tfi__scroll  { overflow-x: auto; }
+.oc-tfi__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.oc-tfi__th {
+    padding: 8px 12px;
+    border-bottom: 2px solid #2a3140;
+    color: var(--oc-muted, #9aa4ad);
+    text-align: center;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+.oc-tfi__td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #1e2530;
+    text-align: center;
+    font-weight: 600;
+}
+.oc-tfi__td--label { color: #e0e0ff; }
+.oc-tfi__zone {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+.oc-tfi__sep {
+    color: var(--oc-muted, #9aa4ad);
+    font-weight: 400;
+}
+.oc-tfi__legend {
+    margin-top: 8px;
+    font-size: 10px;
+    color: #6a7280;
+}
+.oc-tfi__legend .swatch-bull    { color: #32cd32; }
+.oc-tfi__legend .swatch-bear    { color: #ff0000; }
+.oc-tfi__legend .swatch-rsi-mid { color: #adff2f; }
+.oc-tfi__legend .swatch-rsi-low { color: #ffa726; }
+.oc-tfi__legend .swatch-rsi-50  { color: #42a5f5; }
+
+/* ── Top OI ───────────────────────────────────────────────────────────── */
+.oc-top-oi__flex {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+.oc-top-oi__divider {
+    width: 1px;
+    background: #2a3140;
+    align-self: stretch;
+}
+
+/* ── Badge Elements (O=H / O=L) ───────────────────────────────────────── */
+.oc-badge {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-left: 4px;
+    vertical-align: middle;
+    float: left;
+}
+.oc-badge--oh-call  { background: #ff0000; color: #000; } /* BRIGHT_RED */
+.oc-badge--oh-put   { background: #32cd32; color: #000; } /* LIMEGREEN */
+.oc-badge--ol-call  { background: #32cd32; color: #000; } /* LIMEGREEN */
+.oc-badge--ol-put   { background: #ff0000; color: #000; } /* BRIGHT_RED */
+
+/* ── Initial Loader ────────────────────────────────────────────────────── */
+.oc-initial-loader {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    background: var(--oc-panel-bg, #0e1117);
+    border-radius: 12px;
+    border: 1px solid #333;
+    font-family: Inter, sans-serif;
+    color: var(--oc-text, #cfd8dc);
+}
+.oc-initial-loader__title {
+    margin-top: 18px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--oc-h1-clr, #e0e0ff);
+}
+.oc-initial-loader__subtitle {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--oc-muted, #9aa4ad);
+}
+
+/* ── Empty State ───────────────────────────────────────────────────────── */
+.oc-empty {
+    padding: 40px;
+    text-align: center;
+    color: #777;
+    font-size: 14px;
+}
+
+/* ── Utility ──────────────────────────────────────────────────────────── */
+.oc-hidden { display: none; }
+.oc-top-oi__side {
+    flex: 1;
+    min-width: 200px;
+}
+.oc-top-oi__side-title {
+    font-size: 12px;
+    font-weight: 700;
+    padding: 6px 10px 4px;
+    letter-spacing: .04em;
+}
+.oc-top-oi__table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.oc-top-oi__th {
+    padding: 4px 8px;
+    border-bottom: 1px solid #2a3140;
+    font-size: 10px;
+    color: var(--oc-muted, #9aa4ad);
+    text-transform: uppercase;
+    letter-spacing: .03em;
+}
+.oc-top-oi__th--center { text-align: center; }
+.oc-top-oi__th--right  { text-align: right; }
+.oc-top-oi__td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #1e2530;
+}
+.oc-top-oi__td--rank   { text-align: center; font-weight: 700; }
+.oc-top-oi__td--strike { text-align: right; font-weight: 600; }
+.oc-top-oi__td--oi     { text-align: right; }

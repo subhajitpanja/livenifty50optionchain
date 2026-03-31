@@ -1,0 +1,24 @@
+﻿<style>$css
+/* ── Sortable column headers ──────────────────────────────────────────── */
+.oc-table__th--sortable { position: relative; padding-right: 14px !important; }
+.oc-sort-arrow { font-size: 9px; opacity: 0.35; margin-left: 2px; }
+.oc-sort-arrow--asc::after  { content: '▲'; }
+.oc-sort-arrow--desc::after { content: '▼'; }
+.oc-sort-arrow--asc, .oc-sort-arrow--desc { opacity: 1; color: #ffd700; }
+</style>
+<div class="oc-table__panel">
+  <h2 class="oc-table__title">📋 Option Chain</h2>
+  <div class="oc-table__wrapper">
+    <table class="oc-table__table" id="oc-sortable-table">
+      <thead>
+        <tr>
+          <td class="oc-table__label-calls" colspan="6">── CALLS ──</td>
+          <td class="oc-table__label-strike">Strike</td>
+          <td class="oc-table__label-puts" colspan="6">── PUTS ──</td>
+        </tr>
+        <tr>$header_cells</tr>
+      </thead>
+      <tbody>$body_rows</tbody>
+    </table>
+  </div>
+</div>

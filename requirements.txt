@@ -1,0 +1,37 @@
+# Live NIFTY Option Chain Dashboard — Gradio
+# =============================================
+# Core Dependencies
+
+# Web Framework
+gradio==4.41.0
+
+# Data Processing
+pandas==2.0.3
+numpy==1.24.3
+
+# API & HTTP
+requests==2.31.0
+httpx==0.24.1
+
+# Data Visualization
+plotly==5.24.1
+
+# Trading API Wrapper
+Dhan-Tradehull==3.1.0
+
+# Technical Analysis
+TA-Lib==0.6.8
+
+# Rich Terminal Output
+rich==13.7.0
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2024.1
+
+# Optional: for production deployment
+uvicorn==0.28.0
+
+# Optional: testing
+pytest==7.4.0
+pytest-asyncio==0.21.1

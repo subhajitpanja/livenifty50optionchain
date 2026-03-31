@@ -1,0 +1,71 @@
+/* Option Chain Dashboard Styles */
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f5f5f5;
+    margin: 0;
+    padding: 10px;
+}
+
+.header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.card {
+    background: white;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+}
+
+th, td {
+    padding: 10px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+
+th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+}
+
+tr:hover {
+    background-color: #f5f5f5;
+}
+
+.metric {
+    display: inline-block;
+    margin: 10px 20px 10px 0;
+}
+
+.metric-label {
+    color: #666;
+    font-size: 12px;
+    text-transform: uppercase;
+}
+
+.metric-value {
+    font-size: 18px;
+    font-weight: bold;
+    color: #333;
+}
+
+.call {
+    color: #228b22;
+}
+
+.put {
+    color: #dc143c;
+}
