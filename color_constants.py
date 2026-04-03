@@ -65,7 +65,7 @@ TEXT_GREEN = '#69f0ae'    # net positive
 TEXT_RED = '#ff6b6b'      # net negative
 TEXT_LIGHT = '#cfd8dc'    # plotly font / chart text
 ATM_BG = '#000'           # ATM row text color (black on gold)
-NEUTRAL_PURPLE = '#ce93d8'  # RSI neutral zone / plotly RSI neutral
+NEUTRAL_PURPLE = '#FFFFFF'   # RSI line & label (white)
 RED_BRIGHT = '#ff5252'    # RSI oversold / EMA signal line
 
 # ═══════════════════════════════════════════════════════════════════════════

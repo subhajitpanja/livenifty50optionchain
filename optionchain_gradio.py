@@ -2075,8 +2075,7 @@ def _build_one_straddle_chart(strike, open_price, underlying, expiry_idx, chart_
         pnl_color = CALL_BAR if pnl > 0 else PUT_BAR
         pnl_sign  = '+' if pnl > 0 else ''
         current_rsi = float(m['rsi'].dropna().iloc[-1]) if not m['rsi'].dropna().empty else 50.0
-        rsi_color = (PUT_BAR if current_rsi > 70
-                     else CALL_BAR if current_rsi < 30 else NEUTRAL_PURPLE)
+        rsi_color = WHITE
 
         all_y = m['s_close'].tolist() + m['vwap'].dropna().tolist()
         y_min = min(all_y) * 0.91
@@ -2118,7 +2117,7 @@ def _build_one_straddle_chart(strike, open_price, underlying, expiry_idx, chart_
             x=m['timestamp'], y=m['rsi'],
             name='RSI (14)',
             mode='lines',
-            line=dict(color=NEUTRAL_PURPLE, width=1.8),
+            line=dict(color=WHITE, width=1.8),
             hovertemplate='%{y:.1f}<extra>RSI</extra>',
         ), row=2, col=1)
         fig.add_hline(y=70, line_dash='dot',
@@ -2395,8 +2394,7 @@ def _build_strike_straddle_chart(strike: int, open_price: float,
         pnl_color = CALL_BAR if pnl > 0 else PUT_BAR
         pnl_sign  = '+' if pnl > 0 else ''
         current_rsi = float(m['rsi'].dropna().iloc[-1]) if not m['rsi'].dropna().empty else 50.0
-        rsi_color = (PUT_BAR if current_rsi > 70
-                     else CALL_BAR if current_rsi < 30 else NEUTRAL_PURPLE)
+        rsi_color = WHITE
 
         all_y = m['s_close'].tolist() + m['vwap'].dropna().tolist()
         y_min = min(all_y) * 0.91
@@ -2426,7 +2424,7 @@ def _build_strike_straddle_chart(strike: int, open_price: float,
         fig.add_trace(go.Scatter(
             x=m['timestamp'], y=m['rsi'],
             name='RSI (14)', mode='lines',
-            line=dict(color=NEUTRAL_PURPLE, width=1.8),
+            line=dict(color=WHITE, width=1.8),
             hovertemplate='%{y:.1f}<extra>RSI</extra>',
         ), row=2, col=1)
         fig.add_hline(y=70, line_dash='dot',
@@ -2647,7 +2645,7 @@ def _build_ema_candlestick_chart(underlying: str = 'NIFTY'):
 
         last_close  = float(close_s.iloc[-1])
         current_rsi = float(today_df['rsi'].dropna().iloc[-1]) if not today_df['rsi'].dropna().empty else 50.0
-        rsi_color   = (PUT_BAR if current_rsi > 70 else CALL_BAR if current_rsi < 30 else NEUTRAL_PURPLE)
+        rsi_color   = WHITE
         last_macd   = float(today_df['macd'].dropna().iloc[-1]) if not today_df['macd'].dropna().empty else 0.0
         last_sig    = float(today_df['signal'].dropna().iloc[-1]) if not today_df['signal'].dropna().empty else 0.0
         macd_clr    = PUT_BAR if last_macd > last_sig else CALL_BAR
@@ -2701,7 +2699,7 @@ def _build_ema_candlestick_chart(underlying: str = 'NIFTY'):
         fig.add_trace(go.Scatter(
             x=today_df['timestamp'], y=today_df['rsi'],
             name='RSI (14)', mode='lines',
-            line=dict(color=NEUTRAL_PURPLE, width=1.8),
+            line=dict(color=WHITE, width=1.8),
             hovertemplate='%{y:.1f}<extra>RSI</extra>',
         ), row=2, col=1)
         fig.add_hline(y=70, line_dash='dot',
