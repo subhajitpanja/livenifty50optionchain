@@ -40,6 +40,9 @@ OUTPUT_DIR = DATA_DIR / 'output'
 # Logs
 LOGS_DIR = DATA_DIR / 'logs'
 
+# Playwright download staging area
+DOWNLOAD_TEMP_DIR = DATA_DIR / 'downloads'
+
 # ── Specific cache files ─────────────────────────────────────────────────
 SPOT_PRICE_CACHE_FILE = CACHE_DIR / 'spot_price_cache.json'
 VIX_CACHE_FILE = CACHE_DIR / 'vix_cache.json'
@@ -56,5 +59,6 @@ DAY_OPENING_STRADDLES_FILE = CACHE_DIR / 'day_opening_straddles.json'
 def ensure_dirs():
     """Create all required directories if they don't exist."""
     for d in [INSTRUMENTS_DIR, VIX_DIR, FUTURES_DIR, OPTIONCHAIN_CSV_DIR,
-              CACHE_DIR, OUTPUT_DIR, LOGS_DIR, CSS_DIR, HTML_DIR]:
+              CACHE_DIR, OUTPUT_DIR, LOGS_DIR, CSS_DIR, HTML_DIR,
+              DOWNLOAD_TEMP_DIR]:
         d.mkdir(parents=True, exist_ok=True)

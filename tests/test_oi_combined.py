@@ -5,14 +5,27 @@ Tests all bar height / segment logic for the new combined panel
 (📊+📈 OI Distribution + Change).
 
 Run:
-    python optionchain/test_oi_combined.py
+    python tests/test_oi_combined.py
 """
 
 import sys
+import os
+import time
+import datetime as _dt
 from pathlib import Path
+
+# Force UTF-8 on Windows
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
+from rich.rule import Rule
 from rich import box
 from rich.text import Text
 
@@ -23,7 +36,9 @@ for _p in [str(_here), str(_oc_dir)]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-console = Console()
+console = Console(force_terminal=True, width=140)
+_results = []
+_t_start = time.perf_counter()
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Pure-Python recreation of bar-height logic (mirrors _oi_combined_chart)
@@ -86,23 +101,35 @@ CASES = [
 ]
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  STARTUP BANNER
+# ═══════════════════════════════════════════════════════════════════════════
+console.print()
+console.print(Panel(
+    "[bold bright_cyan]OI Combined Chart — Segment Calculation Tests[/]\n"
+    "[dim]Verifying bar heights match NSE-style combined OI visualization[/]\n\n"
+    f"[bold]Date:[/] {_dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+    f"[bold]Python:[/] {sys.version.split()[0]}\n"
+    f"[bold]Platform:[/] {sys.platform}",
+    border_style="bright_cyan",
+    expand=False,
+    padding=(1, 3)))
+console.print()
+
 def _run_tests():
-    console.print()
-    console.print(Panel(
-        "[bold yellow]OI Combined Chart — Segment Calculation Tests[/bold yellow]\n"
-        "[dim]Verifying bar heights match NSE-style combined OI visualization[/dim]",
-        border_style="blue", expand=False))
-    console.print()
+    console.print(Rule("[bold bright_cyan]Increase Test Cases[/]", style="dim cyan"))
+
+    t0 = time.perf_counter()
 
     # Compute global mx as combined chart would
     all_vals = [v for desc, c, p in CASES for v in (c, p)]
     mx_global = max(all_vals) * 1.25
 
     tbl = Table(
-        title="Bar Segment Results",
+        title="[bold]Bar Segment Calculation Results[/]",
         box=box.ROUNDED,
         show_header=True,
-        header_style="bold cyan",
+        header_style="bold bright_cyan",
         expand=True,
     )
     tbl.add_column("Test Case",       style="white",      ratio=4)
@@ -116,6 +143,7 @@ def _run_tests():
     tbl.add_column("✔ Logic",         justify="center",   ratio=1)
 
     all_pass = True
+    passed_count = 0
     for desc, curr, prev in CASES:
         base_px, top_px, base_t, top_t = bar_segments(curr, prev, mx_global)
         total_px = base_px + top_px
@@ -153,6 +181,8 @@ def _run_tests():
 
         if not ok:
             all_pass = False
+        else:
+            passed_count += 1
 
         diff_str = f"+{fmt_l(diff)}" if diff >= 0 else fmt_l(diff)
         diff_clr = "green" if diff > 0 else "red" if diff < 0 else "dim"
@@ -172,19 +202,32 @@ def _run_tests():
             check,
         )
 
+    elapsed = time.perf_counter() - t0
     console.print(tbl)
     console.print()
 
     # ── Summary ──────────────────────────────────────────────────────────
+    console.print(Rule("[bold bright_cyan]Summary[/]", style="dim cyan"))
+
+    summary_tbl = Table(box=box.DOUBLE_EDGE, show_header=False, expand=False, padding=(0, 2))
+    summary_tbl.add_column(style="bold", width=20)
+    summary_tbl.add_column(width=12, justify="right")
+    summary_tbl.add_row("[green]PASSED[/]", f"[bold green]{passed_count}/{len(CASES)}[/]")
+    summary_tbl.add_row("[red]FAILED[/]", f"[bold red]{len(CASES) - passed_count}/{len(CASES)}[/]")
+    summary_tbl.add_row("[dim]ELAPSED[/]", f"{elapsed:.3f}s")
+    console.print(summary_tbl)
+    console.print()
+
     if all_pass:
         console.print(Panel(
-            "[bold green]✔  ALL TESTS PASSED[/bold green]\n"
-            "[dim]Combined OI chart segment logic is correct.[/dim]",
-            border_style="green", expand=False))
+            f"[bold green]✓ ALL {len(CASES)} TESTS PASSED[/]\n"
+            "[dim]Combined OI chart segment logic is correct[/]",
+            border_style="green", expand=False, padding=(1, 2)))
     else:
         console.print(Panel(
-            "[bold red]✘  SOME TESTS FAILED — see table above.[/bold red]",
-            border_style="red", expand=False))
+            f"[bold red]✗ {len(CASES) - passed_count} TEST(S) FAILED[/]\n"
+            "[dim]See results above for details[/]",
+            border_style="red", expand=False, padding=(1, 2)))
 
     # ── Legend explanation ────────────────────────────────────────────────
     console.print()
@@ -213,6 +256,10 @@ def _run_tests():
     console.print(tbl2)
     console.print()
 
+    # ── Exit code ──────────────────────────────────────────────────────
+    return 0 if all_pass else 1
+
 
 if __name__ == '__main__':
-    _run_tests()
+    exit_code = _run_tests()
+    sys.exit(exit_code)

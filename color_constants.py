@@ -53,7 +53,7 @@ BU_FUT = {
 #^# OI RANK COLORS — H1/H2/H3 markers for top 3 OI strikes
 # ═══════════════════════════════════════════════════════════════════════════
 OI_RANK_CALL = {1: '#a50004', 2: '#e60045', 3: '#ff0000'}   # firebrick / red / bright-red
-OI_RANK_PUT = {1: '#32cd32', 2: '#00e676', 3: '#adff2f'}    # limegreen / green / yellow-green
+OI_RANK_PUT = {1: '#32dc32', 2: '#00e676', 3: '#adff2f'}    # limegreen / green / yellow-green
 
 # ═══════════════════════════════════════════════════════════════════════════
 #^# UI / THEME COLORS
@@ -80,11 +80,11 @@ BORDER_COLOR = '#2a3140'  # plotly legend border
 #^# RGBA COLORS — Plotly (opacity/transparency required for overlays/fills)
 # ═══════════════════════════════════════════════════════════════════════════
 #~# RSI Indicator lines & zones
-RSI_OVERBOUGHT_LINE = 'rgba(38,166,154,0.70)'     # PUT_BAR 70% — RSI 70 line
+RSI_OVERBOUGHT_LINE = 'rgba(50,220,50,0.70)'     # PUT_BAR 70% — RSI 70 line
 RSI_NEUTRAL_LINE = 'rgba(150,150,150,0.35)'       # Gray 35% — RSI 50 line
-RSI_OVERSOLD_LINE = 'rgba(239,83,80,0.70)'        # CALL_BAR 70% — RSI 30 line
-RSI_OVERBOUGHT_ZONE = 'rgba(38,166,154,0.07)'     # PUT_BAR 7% — RSI 70-100 fill
-RSI_OVERSOLD_ZONE = 'rgba(239,83,80,0.07)'        # CALL_BAR 7% — RSI 0-30 fill
+RSI_OVERSOLD_LINE = 'rgba(255,0,0,0.70)'        # CALL_BAR 70% — RSI 30 line
+RSI_OVERBOUGHT_ZONE = 'rgba(50,220,50,0.07)'     # PUT_BAR 7% — RSI 70-100 fill
+RSI_OVERSOLD_ZONE = 'rgba(255,0,0,0.07)'        # CALL_BAR 7% — RSI 0-30 fill
 
 #~# Annotation backgrounds (badges, tooltips)
 ANNOTATION_BG_PRIMARY = 'rgba(14,17,23,0.94)'     # PANEL_BG 94% — main annotations

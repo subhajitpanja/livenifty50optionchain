@@ -21,6 +21,14 @@
     margin: 0 auto !important;
     padding-right: 0 !important;
 }
+/* Zero out Gradio's built-in html-container padding so panel gaps are uniform */
+.html-container { padding: 0 !important; }
+/* Collapse anonymous text-node line boxes (BOM / whitespace) inside Gradio prose,
+   then restore normal sizing on actual panel content divs */
+.prose { font-size: 0 !important; line-height: 0 !important; }
+.prose > div { font-size: 14px !important; line-height: 1.4 !important; }
+/* Remove tab-wrapper bottom padding so tab gap = Gradio flex gap only */
+.tab-wrapper { padding-bottom: 0 !important; }
 html, body { margin: 0; padding: 0; }
 body { background: #f6f6f7; }
 footer { display: none !important; }
@@ -66,7 +74,10 @@ footer { display: none !important; }
     border-radius: 8px;
     border: 1px solid #444;
 }
-.oc-panel--mt { margin-top: 4px; }
+/* Sibling panels inside the same gr.HTML block need explicit gap */
+.oc-panel + .oc-panel { margin-top: 16px; }
+.oc-table__panel + .oc-panel { margin-top: 16px; }
+.oc-panel--mt { /* margin handled by Gradio flex gap or sibling rule */ }
 
 /* ── Section titles ───────────────────────────────────────────────────── */
 .oc-section-title {
@@ -241,7 +252,6 @@ footer { display: none !important; }
 
 /* ── Option Chain table ───────────────────────────────────────────────── */
 .oc-table__panel {
-    margin-top: 4px;
     background: #0e1117;
     border-radius: 8px;
     border: 1px solid #444;
@@ -537,9 +547,9 @@ footer { display: none !important; }
 }
 
 /* ── OI Charts wrapper ────────────────────────────────────────────────── */
-.oc-charts-wrap { margin-top: 4px; }
-.oc-charts-gap  { margin-top: 8px; }
-.oc-charts-combined-wrap { margin-top: 8px; }
+.oc-charts-wrap { }
+.oc-charts-gap  { }
+.oc-charts-combined-wrap { }
 
 /* ── Analytics ────────────────────────────────────────────────────────── */
 .oc-analytics__row {
@@ -701,7 +711,6 @@ footer { display: none !important; }
     border-radius: 10px;
     border: 1px solid #1e2530;
     padding: 16px;
-    margin-top: 12px;
     font-family: Inter, sans-serif;
 }
 .oc-tfi__title {
@@ -758,16 +767,106 @@ footer { display: none !important; }
 .oc-tfi__legend .swatch-rsi-low { color: #ffa726; }
 .oc-tfi__legend .swatch-rsi-50  { color: #42a5f5; }
 
-/* ── Top OI ───────────────────────────────────────────────────────────── */
-.oc-top-oi__flex {
-    display: flex;
-    gap: 24px;
-    flex-wrap: wrap;
+/* ── Top OI (unified table: Call left | Strike center | Put right) ──── */
+.oc-top-oi-unified {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: Consolas, monospace;
+    font-size: 12px;
+    background: #0e1117;
 }
-.oc-top-oi__divider {
-    width: 1px;
-    background: #2a3140;
-    align-self: stretch;
+.oc-top-oi-unified__th {
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    border-bottom: 2px solid #2a3140;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+.oc-top-oi-unified__th--call {
+    text-align: center;
+    color: #ff6b6b;
+    background: rgba(239,83,80,0.06);
+}
+.oc-top-oi-unified__th--strike {
+    text-align: center;
+    color: #ffd700;
+    background: rgba(255,215,0,0.06);
+    width: 80px;
+}
+.oc-top-oi-unified__th--put {
+    text-align: center;
+    color: #69f0ae;
+    background: rgba(38,166,154,0.06);
+}
+.oc-top-oi-unified__subth {
+    padding: 3px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    border-bottom: 1px solid #2a3140;
+    color: var(--oc-muted, #9aa4ad);
+    text-transform: uppercase;
+    letter-spacing: .03em;
+}
+.oc-top-oi-unified__subth--call-rank {
+    text-align: left;
+    background: rgba(239,83,80,0.03);
+}
+.oc-top-oi-unified__subth--call-oi {
+    text-align: right;
+    background: rgba(239,83,80,0.03);
+}
+.oc-top-oi-unified__subth--strike {
+    text-align: center;
+    background: rgba(255,215,0,0.03);
+}
+.oc-top-oi-unified__subth--put-oi {
+    text-align: left;
+    background: rgba(38,166,154,0.03);
+}
+.oc-top-oi-unified__subth--put-rank {
+    text-align: right;
+    background: rgba(38,166,154,0.03);
+}
+.oc-top-oi-unified__row {
+    border-bottom: 1px solid #1e2530;
+}
+.oc-top-oi-unified__row:hover {
+    background: rgba(255,255,255,0.03);
+}
+.oc-top-oi-unified__td {
+    padding: 5px 8px;
+    white-space: nowrap;
+}
+.oc-top-oi-unified__td--oi {
+    font-weight: 600;
+}
+.oc-top-oi-unified__td--strike-val {
+    font-weight: 600;
+}
+.oc-top-oi-unified__td--rank {
+    font-weight: 700;
+    font-size: 11px;
+}
+.oc-top-oi-unified__td--call-rank {
+    text-align: left;
+}
+.oc-top-oi-unified__td--call-oi {
+    text-align: right;
+}
+.oc-top-oi-unified__td--put-oi {
+    text-align: left;
+}
+.oc-top-oi-unified__td--put-rank {
+    text-align: right;
+}
+.oc-top-oi-unified__td--common-strike {
+    text-align: center;
+    font-weight: 700;
+    color: #ffd700;
+    background: rgba(255,215,0,0.04);
+    border-left: 1px solid #2a3140;
+    border-right: 1px solid #2a3140;
 }
 
 /* ── Badge Elements (O=H / O=L) ───────────────────────────────────────── */
@@ -820,34 +919,3 @@ footer { display: none !important; }
 
 /* ── Utility ──────────────────────────────────────────────────────────── */
 .oc-hidden { display: none; }
-.oc-top-oi__side {
-    flex: 1;
-    min-width: 200px;
-}
-.oc-top-oi__side-title {
-    font-size: 12px;
-    font-weight: 700;
-    padding: 6px 10px 4px;
-    letter-spacing: .04em;
-}
-.oc-top-oi__table {
-    width: 100%;
-    border-collapse: collapse;
-}
-.oc-top-oi__th {
-    padding: 4px 8px;
-    border-bottom: 1px solid #2a3140;
-    font-size: 10px;
-    color: var(--oc-muted, #9aa4ad);
-    text-transform: uppercase;
-    letter-spacing: .03em;
-}
-.oc-top-oi__th--center { text-align: center; }
-.oc-top-oi__th--right  { text-align: right; }
-.oc-top-oi__td {
-    padding: 5px 8px;
-    border-bottom: 1px solid #1e2530;
-}
-.oc-top-oi__td--rank   { text-align: center; font-weight: 700; }
-.oc-top-oi__td--strike { text-align: right; font-weight: 600; }
-.oc-top-oi__td--oi     { text-align: right; }

@@ -1,8 +1,22 @@
 <div class="oc-panel oc-panel--mt">
   <h2 class="oc-section-title oc-section-title--h2">🏆 Highest Call &amp; Put OI</h2>
-  <div class="oc-top-oi__flex">
-    $call_table
-    <div class="oc-top-oi__divider"></div>
-    $put_table
-  </div>
+  <table class="oc-top-oi-unified">
+    <thead>
+      <tr>
+        <th class="oc-top-oi-unified__th oc-top-oi-unified__th--call" colspan="2">📞 CALL OI</th>
+        <th class="oc-top-oi-unified__th oc-top-oi-unified__th--strike">Strike</th>
+        <th class="oc-top-oi-unified__th oc-top-oi-unified__th--put" colspan="2">📉 PUT OI</th>
+      </tr>
+      <tr>
+        <th class="oc-top-oi-unified__subth oc-top-oi-unified__subth--call-rank">#</th>
+        <th class="oc-top-oi-unified__subth oc-top-oi-unified__subth--call-oi">OI (Lots)</th>
+        <th class="oc-top-oi-unified__subth oc-top-oi-unified__subth--strike"></th>
+        <th class="oc-top-oi-unified__subth oc-top-oi-unified__subth--put-oi">OI (Lots)</th>
+        <th class="oc-top-oi-unified__subth oc-top-oi-unified__subth--put-rank">#</th>
+      </tr>
+    </thead>
+    <tbody>
+      $body_rows
+    </tbody>
+  </table>
 </div>

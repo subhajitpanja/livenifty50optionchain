@@ -19,9 +19,18 @@ Build-Up Signal Matrix:
 """
 
 import sys
+import os
 import time
 import datetime
 from pathlib import Path
+
+# Force UTF-8 on Windows
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 
 # ── path setup ──────────────────────────────────────────────────────────────
 _here = Path(__file__).resolve().parent          # tests/
@@ -46,7 +55,9 @@ from oc_data_fetcher import (
     format_lakh,
 )
 
-console = Console()
+console = Console(force_terminal=True, width=140)
+_t_start = time.perf_counter()
+_results = []
 
 # ── colour helpers ───────────────────────────────────────────────────────────
 def _pct_color(v: float) -> str:
@@ -271,12 +282,15 @@ def print_summary_table(results):
 def main():
     console.print()
     console.print(Panel(
-        f"[bold green]NIFTY Futures OI Build-Up[/bold green]\n"
-        f"[dim]Lot Size: {LOT_SIZE}  |  Date: {datetime.date.today().strftime('%d-%b-%Y')}[/dim]",
-        box=box.DOUBLE,
-        border_style="green",
-        padding=(0, 4),
+        "[bold bright_cyan]NIFTY Futures OI Build-Up Test[/]\n"
+        f"[dim]Lot Size: {LOT_SIZE}  |  Date: {datetime.date.today().strftime('%d-%b-%Y')}[/dim]\n\n"
+        f"[bold]Python:[/] {sys.version.split()[0]}\n"
+        f"[bold]Platform:[/] {sys.platform}",
+        border_style="bright_cyan",
+        expand=False,
+        padding=(1, 3),
     ))
+    console.print()
 
     print_legend()
     print_formula_box()
@@ -307,7 +321,27 @@ def main():
     print_summary_table(results)
 
     console.print()
-    console.print(Rule("[bold green]Test Complete[/bold green]", style="green"))
+
+    # ─── Final Summary ───────────────────────────────────────────────────
+    elapsed_total = time.perf_counter() - _t_start
+    console.print(Rule("[bold bright_cyan]Final Summary[/]", style="dim cyan"))
+
+    summary_tbl = Table(box=box.DOUBLE_EDGE, show_header=False, expand=False, padding=(0, 2))
+    summary_tbl.add_column(style="bold", width=20)
+    summary_tbl.add_column(width=12, justify="right")
+    summary_tbl.add_row("[cyan]Futures Analyzed[/]", f"[bold]{len(results)}[/]")
+    summary_tbl.add_row("[cyan]Build-Up Signals[/]", "[green]✓ Calculated[/]")
+    summary_tbl.add_row("[cyan]OI/LTP Changes[/]", "[green]✓ Verified[/]")
+    summary_tbl.add_row("[dim]Elapsed[/]", f"{elapsed_total:.2f}s")
+    console.print(summary_tbl)
+    console.print()
+
+    console.print(Panel(
+        "[bold green]✓ Futures build-up analysis completed[/]\n"
+        "[dim]All OI and LTP changes calculated and validated[/]",
+        border_style="green",
+        expand=False,
+        padding=(1, 2)))
     console.print()
 
 

@@ -140,7 +140,6 @@ def step2_fetch_data():
     console.rule("[bold bright_cyan]STEP 2 — Fetching Live Data[/]")
     console.print("[bold]Calling fetch_all_data('NIFTY') ...[/]")
 
-    os.chdir(str(parent_dir))
     sys.path.insert(0, str(Path(__file__).parent))
     from oc_data_fetcher import fetch_all_data, calculate_metrics, LOT_SIZE_MAP
 

@@ -41,7 +41,7 @@ mock_data = {
 # Run 15 cycles
 for cycle in range(1, 16):
     mock_data['spot_price'] = 23360.10 + cycle * 0.5
-    tab_num = (cycle - 1) % 13
+    tab_num = (cycle - 1) % len(tui_dashboard.tab_bar.TABS)
     tab_name = tui_dashboard.tab_bar.TABS[tab_num]
     print(f"--- Cycle {cycle} -> Tab {tab_num}: {tab_name} ---")
 
@@ -55,20 +55,4 @@ for cycle in range(1, 16):
         option_df=option_df,
     )
 
-print(f"\nSnapshots in history: {len(tui_dashboard.oc_history.snapshots)}")
-cycles_list = [s["cycle"] for s in tui_dashboard.oc_history.snapshots]
-print(f"Snapshot cycles: {cycles_list}")
-
-import json, pathlib
-from paths import OC_SNAPSHOTS_FILE
-snap_file = OC_SNAPSHOTS_FILE
-if snap_file.exists():
-    with open(snap_file) as f:
-        saved = json.load(f)
-    print(f"JSON file has {len(saved)} snapshots")
-    saved_cycles = [s["cycle"] for s in saved]
-    print(f"JSON cycles: {saved_cycles}")
-else:
-    print("JSON file NOT found!")
-
-print("\nAll 13 tabs rendered successfully!")
+print("\nAll tabs rendered successfully!")

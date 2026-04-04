@@ -67,6 +67,7 @@ from rich.text import Text
 from rich import box
 
 console = Console(force_terminal=True, width=140)
+_t_start = time.time()
 
 # ── Counters ────────────────────────────────────────────────────────────────
 _passed = 0
@@ -743,16 +744,15 @@ def test_group5_rendering(data=None):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def main():
-    t_start = time.time()
-
     console.print()
     console.print(Panel(
-        "[bold bright_yellow]Comprehensive Function Test[/bold bright_yellow]\n"
-        "[dim]optionchain_gradio.py — All key functions[/dim]\n\n"
-        f"[bold]Date:[/bold] {_dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        f"[bold]Python:[/bold] {sys.version.split()[0]}\n"
-        f"[bold]Platform:[/bold] {sys.platform}",
-        border_style="bright_blue", expand=False, padding=(1, 3)))
+        "[bold bright_cyan]Comprehensive Function Test[/]\n"
+        "[dim]optionchain_gradio.py — All key functions[/]\n\n"
+        f"[bold]Date:[/] {_dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"[bold]Python:[/] {sys.version.split()[0]}\n"
+        f"[bold]Platform:[/] {sys.platform}",
+        border_style="bright_cyan", expand=False, padding=(1, 3)))
+    console.print()
 
     # GROUP 1: Pure logic
     test_group1_pure_logic()
@@ -770,32 +770,36 @@ def main():
     test_group5_rendering(data)
 
     # ── FINAL SUMMARY ────────────────────────────────────────────────────
-    dt_total = time.time() - t_start
-    section("FINAL SUMMARY")
+    dt_total = time.time() - _t_start
+    section("Final Summary")
 
-    summary = Table(box=box.DOUBLE_EDGE, show_header=False, expand=False,
-                    padding=(0, 2))
-    summary.add_column(style="bold", width=16)
+    summary = Table(box=box.DOUBLE_EDGE, show_header=False, expand=False, padding=(0, 2))
+    summary.add_column(style="bold", width=20)
     summary.add_column(width=12, justify="right")
-    summary.add_row("[green]Passed[/]", f"[bold green]{_passed}[/]")
-    summary.add_row("[red]Failed[/]", f"[bold red]{_failed}[/]")
-    summary.add_row("[yellow]Skipped[/]", f"[bold yellow]{_skipped}[/]")
-    summary.add_row("Total", f"[bold]{_passed + _failed + _skipped}[/]")
-    summary.add_row("Duration", f"{dt_total:.1f}s")
+    summary.add_row("[green]PASSED[/]", f"[bold green]{_passed}[/]")
+    summary.add_row("[red]FAILED[/]", f"[bold red]{_failed}[/]")
+    summary.add_row("[yellow]SKIPPED[/]", f"[bold yellow]{_skipped}[/]")
+    summary.add_row("[dim]TOTAL[/]", f"[bold]{_passed + _failed + _skipped}[/]")
+    summary.add_row("[dim]DURATION[/]", f"{dt_total:.2f}s")
     console.print(summary)
     console.print()
 
     if _failed == 0:
         console.print(Panel(
-            f"[bold green]ALL {_passed} TESTS PASSED[/bold green]  "
-            f"({_skipped} skipped)  |  {dt_total:.1f}s",
-            border_style="green", expand=False))
+            f"[bold green]✓ ALL {_passed} TESTS PASSED[/]\n"
+            f"[dim]{_skipped} skipped  |  {dt_total:.2f}s[/]",
+            border_style="green",
+            expand=False,
+            padding=(1, 2)))
     else:
         console.print(Panel(
-            f"[bold red]{_failed} TEST(S) FAILED[/bold red]  "
-            f"({_passed} passed, {_skipped} skipped)  |  {dt_total:.1f}s",
-            border_style="red", expand=False))
+            f"[bold red]✗ {_failed} TEST(S) FAILED[/]\n"
+            f"[dim]{_passed} passed, {_skipped} skipped  |  {dt_total:.2f}s[/]",
+            border_style="red",
+            expand=False,
+            padding=(1, 2)))
 
+    console.print()
     return _failed == 0
 
 

@@ -427,6 +427,8 @@ def _fetch_option_intraday(security_id: str, interval: int = 5,
 def _check_dependencies_for_data(underlying: str, date_str: str = None) -> pd.DataFrame:
     """Check data/source/optionchain/ folder for cached daily CSV data.
     These CSVs contain option chain snapshots saved by previous runs.
+    Supports both old naming (YYYY-MM-DD.csv) and new naming
+    (YYYY-MM-DD_exp_YYYY-MM-DD.csv) conventions.
     Returns DataFrame or empty DataFrame if not found.
     """
     deps_dir = OPTIONCHAIN_CSV_DIR
@@ -442,6 +444,31 @@ def _check_dependencies_for_data(underlying: str, date_str: str = None) -> pd.Da
         dates_to_check = [str(today - _dtmod.timedelta(days=i)) for i in range(16)]
 
     for d_str in dates_to_check:
+        #~# Check new naming convention first: YYYY-MM-DD_exp_*.csv
+        new_pattern = list(deps_dir.glob(f'{d_str}_exp_*.csv'))
+        if new_pattern:
+            csv_path = sorted(new_pattern)[-1]  # latest if multiple
+            try:
+                #~# Skip the metadata rows (Date, Expiry Date) at top
+                df = pd.read_csv(csv_path, skiprows=2)
+                if not df.empty:
+                    _dbg_console.print(
+                        f"[dim]\\[Cache] Found cached data: {csv_path.name} "
+                        f"({len(df)} rows)[/]")
+                    return df
+            except Exception:
+                #~# Try without skipping rows (old metadata format)
+                try:
+                    df = pd.read_csv(csv_path)
+                    if not df.empty:
+                        _dbg_console.print(
+                            f"[dim]\\[Cache] Found cached data: {csv_path.name} "
+                            f"({len(df)} rows, no skiprows)[/]")
+                        return df
+                except Exception:
+                    pass
+
+        #~# Fallback: old naming convention YYYY-MM-DD.csv
         csv_path = deps_dir / f'{d_str}.csv'
         if csv_path.exists():
             try:
@@ -678,18 +705,44 @@ def _update_oi_history(bullish_oi: float, bearish_oi: float, timestamp: str):
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def render_opening_cards(display_open: float, saved_strike, c_ltp: float = 0, p_ltp: float = 0) -> str:
+def render_opening_cards(display_open: float, saved_strike, c_ltp: float = 0, p_ltp: float = 0,
+                         today_high: float = 0, today_low: float = 0) -> str:
     """? Return the opening-cards HTML from template.
 
     Loads opening_cards.html and substitutes live values.
     """
     total_straddle = c_ltp + p_ltp
+
+    #~# Compute Open vs High/Low label for daily timeframe
+    open_hilo_label = ''
+    if display_open > 0 and (today_high > 0 or today_low > 0):
+        parts = []
+        if today_low > 0:
+            diff_low = abs(display_open - today_low)
+            if diff_low == 0:
+                parts.append('<span style="color:#ff9800;font-weight:600">Open = Low</span>')
+            elif diff_low <= 50:
+                parts.append('<span style="color:#ff9800">Open &amp; Low Nearby</span>')
+        if today_high > 0:
+            diff_high = abs(display_open - today_high)
+            if diff_high == 0:
+                parts.append('<span style="color:#4caf50;font-weight:600">Open = High</span>')
+            elif diff_high <= 50:
+                parts.append('<span style="color:#4caf50">Open &amp; High Nearby</span>')
+        if parts:
+            open_hilo_label = (
+                '<div class="oc-card__sub" style="margin-top:3px">'
+                + ' &nbsp;|&nbsp; '.join(parts)
+                + '</div>'
+            )
+
     return _render('opening_cards',
                    display_open=f'{display_open:,.2f}',
                    saved_strike=saved_strike or 'N/A',
                    total_straddle=f'{total_straddle:,.2f}',
                    c_ltp=f'{c_ltp:.2f}',
-                   p_ltp=f'{p_ltp:.2f}')
+                   p_ltp=f'{p_ltp:.2f}',
+                   open_hilo_label=open_hilo_label)
 
 
 _prev_close_cache: dict = {}  #~# key = underlying → {'close': float, 'ts': float}
@@ -814,8 +867,24 @@ def _header(d: dict) -> str:
         except Exception:
             pass
 
+    #~# Today's Daily High / Low (from cached 5-min intraday) for Open vs H/L label
+    _today_high, _today_low = 0.0, 0.0
+    try:
+        import datetime as _dt_hilo
+        _intra = _fetch_ohlcv_direct(underlying, 5)
+        if _intra is not None and not _intra.empty:
+            _today_mask = _intra['timestamp'].dt.date == _dt_hilo.date.today()
+            _today_bars = _intra.loc[_today_mask]
+            if not _today_bars.empty:
+                _today_high = float(_today_bars['high'].max())
+                _today_low  = float(_today_bars['low'].min())
+    except Exception:
+        pass
+
     #~# Render opening cards via helper
-    opening_cards = render_opening_cards(display_open, saved_strike, c_ltp, p_ltp)
+    opening_cards = render_opening_cards(display_open, saved_strike, c_ltp, p_ltp,
+                                         today_high=_today_high,
+                                         today_low=_today_low)
 
     #~# Render header from template
     css = _load_css()
@@ -928,6 +997,14 @@ def _oc_table(df: pd.DataFrame, atm: float) -> str:
             #~# Build Up column — keep signal colors on ATM too
             if key in ('C_BuildUp', 'P_BuildUp'):
                 txt = str(val) if val and val == val else '-'
+                #~# Compact display: LB P↑ OI↑, SB P↓ OI↑, SC P↑ OI↓, LU P↓ OI↓
+                _bu_display = {
+                    'LB': 'LB P↑OI↑',
+                    'SB': 'SB P↓OI↑',
+                    'SC': 'SC P↑OI↓',
+                    'LU': 'LU P↓OI↓',
+                }
+                txt = _bu_display.get(str(val).strip(), txt)
                 bu_map = BU_CALL if key == 'C_BuildUp' else BU_PUT
                 c = bu_map.get(str(val).strip(), MUTED)
                 #~# Sort: LB=1, SC=2, SB=3, LU=4, else 9
@@ -976,6 +1053,8 @@ def _oc_table(df: pd.DataFrame, atm: float) -> str:
                     txt = f'{v:.1f}' if 'IV' in key else f'{v:+.2f}%'
                     if 'Chg' in key:
                         c = GREEN if v > 0 else RED if v < 0 else MUTED
+                    elif 'IV' in key:
+                        c = MUTED_LIGHT
                     else:
                         c = dc
                 except (ValueError, TypeError):
@@ -983,7 +1062,7 @@ def _oc_table(df: pd.DataFrame, atm: float) -> str:
                     sort_val = '0'
                     c = MUTED
 
-            #~# LTP column — with OH/OL badge
+            #~# LTP column — with OH/OL badge, CYAN text
             elif key in ('C_LTP', 'P_LTP'):
                 try:
                     fv = float(val)
@@ -1000,13 +1079,13 @@ def _oc_table(df: pd.DataFrame, atm: float) -> str:
                 if oh_ol_tag == 'OH':
                     badge_class = 'oc-badge oc-badge--oh-call' if is_call else 'oc-badge oc-badge--oh-put'
                     txt = f"{txt} {_render('oc_badge', badge_class=badge_class, badge_text='O=H')}"
-                    c = dc
+                    c = CYAN
                 elif oh_ol_tag == 'OL':
                     badge_class = 'oc-badge oc-badge--ol-call' if is_call else 'oc-badge oc-badge--ol-put'
                     txt = f"{txt} {_render('oc_badge', badge_class=badge_class, badge_text='O=L')}"
-                    c = dc
+                    c = CYAN
                 else:
-                    c = dc
+                    c = CYAN
 
             #~# LTP column (other — fallback)
             else:
@@ -1060,6 +1139,14 @@ def _futures(futures_data: list, ul: str) -> str:
         expiry = item.get('expiry', '')
 
         color = BU_FUT.get(buildup, MUTED)
+        #~# Display with Price/OI arrows for futures build-up
+        _bu_fut_display = {
+            'Long Build Up':  'Long Build Up [Price ↑ + OI ↑]',
+            'Short Build Up': 'Short Build Up [Price ↓ + OI ↑]',
+            'Short Covering':  'Short Covering [Price ↑ + OI ↓]',
+            'Long Unwinding':  'Long Unwinding [Price ↓ + OI ↓]',
+        }
+        buildup = _bu_fut_display.get(buildup, buildup)
         oi_chg_color = GREEN if oi_chg_pct > 0 else RED
         ltp_chg_color = GREEN if ltp_chg_pct > 0 else RED
 
@@ -1388,9 +1475,10 @@ def _oi_charts(data: dict) -> str:
 
 def _top_oi_table(option_df) -> str:
     """!
-    Renders 'Highest Call & Put OI' using the same option_df (and same ranking logic)
-    as the OC table, so H1/H2/H3 labels here always match what's shown in the chain.
-    Two separate side-by-side mini-tables: left = Calls, right = Puts.
+    Renders 'Highest Call & Put OI' as a unified table with a common Strike column
+    in the center. Call data fills the left side, Put data fills the right side.
+    All unique strikes from both top-3 Call OI and top-3 Put OI are merged and
+    sorted descending. Empty cells are shown where a side has no data for that strike.
     """
     try:
         if option_df is None or option_df.empty:
@@ -1402,39 +1490,65 @@ def _top_oi_table(option_df) -> str:
         p_oi_vals = sorted(option_df['P_OI'].dropna().unique(), reverse=True)[:3] \
                     if 'P_OI' in option_df.columns else []
 
-        # Build ordered list of (rank, strike, oi) for each side
-        call_rows = []
+        # Build {strike: (rank, oi)} maps for each side
+        call_map = {}  # strike → (rank, oi_val)
         for i, oi_val in enumerate(c_oi_vals):
             if oi_val > 0:
                 r = i + 1
                 strike_row = option_df[option_df['C_OI'] == oi_val].iloc[0]
-                call_rows.append((r, int(strike_row['Strike']), oi_val))
+                call_map[int(strike_row['Strike'])] = (r, oi_val)
 
-        put_rows = []
+        put_map = {}  # strike → (rank, oi_val)
         for i, oi_val in enumerate(p_oi_vals):
             if oi_val > 0:
                 r = i + 1
                 strike_row = option_df[option_df['P_OI'] == oi_val].iloc[0]
-                put_rows.append((r, int(strike_row['Strike']), oi_val))
+                put_map[int(strike_row['Strike'])] = (r, oi_val)
 
-        def _mini_table(side_rows, clr_map, side_label, side_cls):
-            body = ''
-            for (r, strike, oi) in side_rows:
-                clr = clr_map.get(r, TEXT_DEFAULT)
-                body += _render('top_oi_row',
-                                color=clr,
-                                rank=r, strike=f'{strike:,}',
-                                oi_fmt=format_lakh(oi))
-            title_color = CALL_BAR if side_cls == 'oc-analytics__td--call' else PUT_BAR
-            return _render('top_oi_side',
-                           title_color=title_color, side_label=side_label,
-                           side_cls=side_cls, body_rows=body)
+        # Merge all unique strikes from both sides, sorted descending
+        all_strikes = sorted(set(call_map.keys()) | set(put_map.keys()), reverse=True)
+        if not all_strikes:
+            return ''
 
-        call_tbl = _mini_table(call_rows, OI_RANK_CALL, SEC_CALL_OI, 'oc-analytics__td--call')
-        put_tbl  = _mini_table(put_rows,  OI_RANK_PUT,  SEC_PUT_OI,  'oc-analytics__td--put')
+        body = ''
+        for strike in all_strikes:
+            c_data = call_map.get(strike)  # (rank, oi) or None
+            p_data = put_map.get(strike)   # (rank, oi) or None
 
-        return _render('top_oi',
-                       call_table=call_tbl, put_table=put_tbl)
+            if c_data:
+                c_rank, c_oi = c_data
+                c_clr = OI_RANK_CALL.get(c_rank, TEXT_DEFAULT)
+                call_oi = format_lakh(c_oi)
+                call_rank = f'H{c_rank}'
+                call_oi_style = f'color:{c_clr}'
+                call_rank_style = f'color:{c_clr}'
+            else:
+                call_oi = ''
+                call_rank = ''
+                call_oi_style = ''
+                call_rank_style = ''
+
+            if p_data:
+                p_rank, p_oi = p_data
+                p_clr = OI_RANK_PUT.get(p_rank, TEXT_DEFAULT)
+                put_oi = format_lakh(p_oi)
+                put_rank = f'H{p_rank}'
+                put_oi_style = f'color:{p_clr}'
+                put_rank_style = f'color:{p_clr}'
+            else:
+                put_oi = ''
+                put_rank = ''
+                put_oi_style = ''
+                put_rank_style = ''
+
+            body += _render('top_oi_unified_row',
+                            call_oi=call_oi, call_rank=call_rank,
+                            call_oi_style=call_oi_style, call_rank_style=call_rank_style,
+                            common_strike=f'{strike:,}',
+                            put_rank=put_rank, put_oi=put_oi,
+                            put_oi_style=put_oi_style, put_rank_style=put_rank_style)
+
+        return _render('top_oi', body_rows=body)
     except Exception:
         return ''
 
@@ -1555,10 +1669,8 @@ def _analytics(m: dict, data: dict | None = None) -> str:
         (LBL_PCR_ITM_OI_CHG, f"{pcr_itm_c:.2f}", ""),
     ])
 
-    css = _load_css()
     top_oi_html = _top_oi_table(option_df) if (option_df is not None and not option_df.empty) else ''
     return _render('analytics',
-                   css=css,
                    H2_CLR=H2_CLR,
                    top_oi=top_oi_html,
                    row1=totals + sentiment,
@@ -2107,11 +2219,6 @@ def _build_one_straddle_chart(strike, open_price, underlying, expiry_idx, chart_
             hovertemplate='\u20b9%{y:.2f}<extra>VWAP</extra>',
         ), row=1, col=1)
 
-        # ── Opening reference hline ────────────────────────────────────
-        fig.add_hline(y=opening_straddle,
-                      line_dash='dash', line_color=GOLD, line_width=2,
-                      row=1, col=1)
-
         # ── RSI ───────────────────────────────────────────────────────
         fig.add_trace(go.Scatter(
             x=m['timestamp'], y=m['rsi'],
@@ -2417,9 +2524,6 @@ def _build_strike_straddle_chart(strike: int, open_price: float,
             line=dict(color=DEEP_ORANGE, width=2.0, dash='dot'),
             hovertemplate='\u20b9%{y:.2f}<extra>VWAP</extra>',
         ), row=1, col=1)
-
-        fig.add_hline(y=opening_straddle, line_dash='dash',
-                      line_color=GOLD, line_width=2, row=1, col=1)
 
         fig.add_trace(go.Scatter(
             x=m['timestamp'], y=m['rsi'],
@@ -3291,7 +3395,7 @@ def refresh_data(underlying, expiry_idx, num_strikes):
             err = _render('error', message=data['error'])
             _oc_hist = _get_oc_history_htmls()
             _oi_dist_hist = _get_oi_dist_history_htmls()
-            return (err, "", "", _last_valid_oi_charts, *_oi_dist_hist, _get_oi_dist_ts_html(), _last_valid_oc_html, *_oc_hist, _get_oc_ts_html(), "", "", None, None, None, None, "", None, None, None, None, None)
+            return (err, "", "", _last_valid_oi_charts, *_oi_dist_hist, _get_oi_dist_ts_html(), _last_valid_oc_html, *_oc_hist, _get_oc_ts_html(), "", None, None, None, None, "", None, None, None, None, None)
         _cached_underlying = underlying
 
         header_html = _header(data)
@@ -3307,8 +3411,10 @@ def refresh_data(underlying, expiry_idx, num_strikes):
         _atm_row_executor.submit(_build_atm_triple_background, data)
         tf_table = _build_tf_indicators_table(underlying, spot_price=data.get('spot_price', 0))
         _oc_live = _oc_table(data['option_df'], data['atm_strike'])
-        _last_valid_oc_html = _oc_live
-        _push_oc_snapshot(_oc_live, df=data['option_df'])
+        _analytics_live = _analytics(data['metrics'], data)
+        _oc_combined = _oc_live + _analytics_live
+        _last_valid_oc_html = _oc_combined
+        _push_oc_snapshot(_oc_combined, df=data['option_df'])
         _oc_hist = _get_oc_history_htmls()
         _oi_charts_live = _oi_charts(data)
         _push_oi_dist_snapshot(_oi_charts_live, df=data.get('option_df'))
@@ -3320,11 +3426,10 @@ def refresh_data(underlying, expiry_idx, num_strikes):
             _oi_charts_live,
             *_oi_dist_hist,
             _get_oi_dist_ts_html(),
-            _oc_live,
+            _oc_combined,
             *_oc_hist,
             _get_oc_ts_html(),
             _futures(data.get('futures_buildup', []), underlying),
-            _analytics(data['metrics'], data),
             s_fig0_15,
             s_fig1_15,
             s_fig0_5,
@@ -3340,7 +3445,7 @@ def refresh_data(underlying, expiry_idx, num_strikes):
         err = _render('error', message=str(e))
         _oc_hist = _get_oc_history_htmls()
         _oi_dist_hist = _get_oi_dist_history_htmls()
-        return (err, "", "", _last_valid_oi_charts, *_oi_dist_hist, _get_oi_dist_ts_html(), _last_valid_oc_html, *_oc_hist, _get_oc_ts_html(), "", "", None, None, None, None, "", None, None, None, None, None)
+        return (err, "", "", _last_valid_oi_charts, *_oi_dist_hist, _get_oi_dist_ts_html(), _last_valid_oc_html, *_oc_hist, _get_oc_ts_html(), "", None, None, None, None, "", None, None, None, None, None)
 
 
 _refresh_counter = 0  # track refresh cycles
@@ -3481,7 +3586,7 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
                 err = _render('error', message=data['error'])
                 _oc_hist = _get_oc_history_htmls()
                 _oi_dist_hist = _get_oi_dist_history_htmls()
-                return (err, "", "", _last_valid_oi_charts, *_oi_dist_hist, _get_oi_dist_ts_html(), _last_valid_oc_html, *_oc_hist, _get_oc_ts_html(), "", "", None, None, None, None, "", None, None, None, None, None)
+                return (err, "", "", _last_valid_oi_charts, *_oi_dist_hist, _get_oi_dist_ts_html(), _last_valid_oc_html, *_oc_hist, _get_oc_ts_html(), "", None, None, None, None, "", None, None, None, None, None)
 
             data['_update_oi'] = True
             _cached_full_data = data
@@ -3535,8 +3640,10 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
         _atm_row_executor.submit(_build_atm_triple_background, data)
         tf_table = _build_tf_indicators_table(underlying, spot_price=data.get('spot_price', 0))
         _oc_live = _oc_table(data['option_df'], data['atm_strike'])
-        _last_valid_oc_html = _oc_live
-        _push_oc_snapshot(_oc_live, df=data['option_df'])
+        _analytics_live = _analytics(data['metrics'], data)
+        _oc_combined = _oc_live + _analytics_live
+        _last_valid_oc_html = _oc_combined
+        _push_oc_snapshot(_oc_combined, df=data['option_df'])
         _oc_hist = _get_oc_history_htmls()
         _oi_charts_live = _oi_charts(data)
         _push_oi_dist_snapshot(_oi_charts_live, df=data.get('option_df'))
@@ -3548,11 +3655,10 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
             _oi_charts_live,
             *_oi_dist_hist,
             _get_oi_dist_ts_html(),
-            _oc_live,
+            _oc_combined,
             *_oc_hist,
             _get_oc_ts_html(),
             _futures(data.get('futures_buildup', []), underlying),
-            _analytics(data['metrics'], data),
             s_fig0_15,
             s_fig1_15,
             s_fig0_5,
@@ -3577,7 +3683,7 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
         err = _render('error', message=str(e))
         _oc_hist = _get_oc_history_htmls()
         _oi_dist_hist = _get_oi_dist_history_htmls()
-        return (err, "", "", _last_valid_oi_charts, *_oi_dist_hist, _get_oi_dist_ts_html(), _last_valid_oc_html, *_oc_hist, _get_oc_ts_html(), "", "", None, None, None, None, "", None, None, None, None, None)
+        return (err, "", "", _last_valid_oi_charts, *_oi_dist_hist, _get_oi_dist_ts_html(), _last_valid_oc_html, *_oc_hist, _get_oc_ts_html(), "", None, None, None, None, "", None, None, None, None, None)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -3754,7 +3860,6 @@ with gr.Blocks(title="NIFTY Option Chain Live") as demo:
                 oc_hist_tabs.append(gr.HTML())
     oc_ts_out = gr.HTML(elem_id="oc-ts-wrapper")  #~# carries tab timestamps, hidden via CSS
     futures_out = gr.HTML()
-    analytics_out = gr.HTML()
     with gr.Row():
         straddle_chart_w0 = gr.Plot(label="📈 15-Min Straddle — Current Expiry")
         straddle_chart_w1 = gr.Plot(label="📈 15-Min Straddle — Next Expiry")
@@ -3780,7 +3885,7 @@ with gr.Blocks(title="NIFTY Option Chain Live") as demo:
             oc_out,
             *oc_hist_tabs,
             oc_ts_out,
-            futures_out, analytics_out,
+            futures_out,
             straddle_chart_w0, straddle_chart_w1,
             straddle_chart_5m_w0, straddle_chart_5m_w1,
             tf_indicators_out,

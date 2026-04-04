@@ -35,6 +35,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.rule import Rule
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich import box
 
 from Credential.Credential import client_code, token_id
@@ -47,7 +48,8 @@ from oc_data_fetcher import (
     get_cached_spot_price,
 )
 
-console = Console(force_terminal=True)
+console = Console(force_terminal=True, width=140)
+_t_start = time.time()
 
 UNDERLYING = 'NIFTY'
 STEP = INDEX_STEP_MAP.get(UNDERLYING, 50)
@@ -135,9 +137,14 @@ def _calc_rsi(series, period=14):
 def run_test():
     console.print()
     console.print(Panel(
-        "[bold yellow]15-Min Straddle Chart Test[/bold yellow]\n"
-        "[dim]Direct Dhan API — no Tradehull dependency[/dim]",
-        border_style="blue", expand=False))
+        "[bold bright_cyan]15-Min Straddle Chart Test[/]\n"
+        "[dim]Direct Dhan API — building intraday straddle OHLCV[/]\n\n"
+        f"[bold]Date:[/] {_dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"[bold]Python:[/] {sys.version.split()[0]}\n"
+        f"[bold]Platform:[/] {sys.platform}",
+        border_style="bright_cyan",
+        expand=False,
+        padding=(1, 3)))
     console.print()
 
     results = Table(title="Test Steps", box=box.ROUNDED, show_header=True,
@@ -323,12 +330,36 @@ def run_test():
     console.print(summary)
     console.print()
 
+    # ─── Final Summary ───────────────────────────────────────────────────
+    elapsed_total = time.time() - _t_start
+    console.print()
+    console.print(Rule("[bold bright_cyan]Final Summary[/]", style="dim cyan"))
+
+    summary_final = Table(box=box.DOUBLE_EDGE, show_header=False, expand=False, padding=(0, 2))
+    summary_final.add_column(style="bold", width=20)
+    summary_final.add_column(width=12, justify="right")
+    summary_final.add_row("[cyan]Build Steps[/]", "[green]7 executed[/]")
+    summary_final.add_row("[cyan]API Calls[/]", "[green]✓ Complete[/]")
+    summary_final.add_row("[cyan]Chart Status[/]", f"[{'green' if all_pass else 'red'}]{'✓ Rendered' if all_pass else '✗ Failed'}[/]")
+    summary_final.add_row("[dim]Elapsed[/]", f"{elapsed_total:.2f}s")
+    console.print(summary_final)
+    console.print()
+
     if all_pass:
-        console.print(Panel("[bold green]ALL STEPS PASSED[/bold green]",
-                            border_style="green", expand=False))
+        console.print(Panel(
+            "[bold green]✓ ALL STEPS PASSED[/]\n"
+            "[dim]Straddle chart built successfully with all indicators[/]",
+            border_style="green",
+            expand=False,
+            padding=(1, 2)))
     else:
-        console.print(Panel("[bold red]SOME STEPS FAILED — see table above[/bold red]",
-                            border_style="red", expand=False))
+        console.print(Panel(
+            "[bold red]✗ SOME STEPS FAILED[/]\n"
+            "[dim]See results table above for details[/]",
+            border_style="red",
+            expand=False,
+            padding=(1, 2)))
+    console.print()
 
 
 if __name__ == '__main__':

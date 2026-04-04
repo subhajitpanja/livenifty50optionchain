@@ -8,11 +8,19 @@ Runs every 60s for 5 minutes (5 iterations) so you can compare side-by-side
 with the Gradio dashboard values.
 
 Usage:
-    cd "D:\Algo trading mentorship"
-    python optionchain/test_mtf_indicators_richprint.py
+    cd workspace_root
+    python tests/test_mtf_indicators_richprint.py
 """
 
 import sys, os, time, datetime as _dt
+
+# Force UTF-8 on Windows
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 
 # ── path setup ──────────────────────────────────────────────────────────────
 _here = os.path.dirname(os.path.abspath(__file__))   # tests/
@@ -20,6 +28,8 @@ _oc_dir = os.path.dirname(_here)                      # project root
 for p in (_here, _oc_dir):
     if p not in sys.path:
         sys.path.insert(0, p)
+
+_t_start = time.time()
 
 import pandas as pd
 import requests
@@ -394,32 +404,60 @@ def run_one_cycle(cycle_num: int):
 
 def main():
     if HAS_RICH:
+        from rich.rule import Rule
+        Console().print()
         Console().print(Panel(
-            f"[bold cyan]NIFTY Multi-Timeframe RSI & MACD Validation[/]\n\n"
+            f"[bold bright_cyan]NIFTY Multi-Timeframe RSI & MACD Validation[/]\n\n"
             f"Underlying: [bold]{UNDERLYING}[/]\n"
             f"Iterations: {ITERATIONS} × {INTERVAL_S}s = {ITERATIONS * INTERVAL_S // 60} min\n"
             f"Timeframes: 5m, 10m, 15m, 30m, 60m, Daily\n\n"
-            f"Compares: RSI(14) and MACD(12,26,9) from FULL data vs TODAY-only data.\n"
-            f"Large 'RSI Diff' = warm-up error when using only today's candles.",
+            f"[bold]Python:[/] {sys.version.split()[0]}\n"
+            f"[bold]Platform:[/] {sys.platform}\n\n"
+            f"[dim]Compares: RSI(14) and MACD(12,26,9) from FULL data vs TODAY-only data.\n"
+            f"Large 'RSI Diff' = warm-up error when using only today's candles.[/]",
             title="[bold white]Test Configuration[/]",
-            border_style="cyan",
+            border_style="bright_cyan",
+            padding=(1, 2),
         ))
+        Console().print()
 
     for i in range(1, ITERATIONS + 1):
         run_one_cycle(i)
         if i < ITERATIONS:
             if HAS_RICH:
+                remaining = ITERATIONS - i
+                elapsed = time.time() - _t_start
                 Console().print(f"\n[dim]⏳ Waiting {INTERVAL_S}s before next cycle... "
-                                f"({ITERATIONS - i} remaining)[/]\n")
+                                f"({remaining} remaining)  |  Elapsed: {elapsed:.1f}s[/]\n")
             else:
                 print(f"\n⏳ Waiting {INTERVAL_S}s... ({ITERATIONS - i} remaining)\n")
             time.sleep(INTERVAL_S)
 
+    # Final summary
+    elapsed_total = time.time() - _t_start
     if HAS_RICH:
-        Console().print(Panel("[bold green]✅ Validation complete — all cycles finished.[/]",
-                              border_style="green"))
+        from rich.table import Table
+        from rich import box
+
+        summary_tbl = Table(box=box.DOUBLE_EDGE, show_header=False, expand=False, padding=(0, 2))
+        summary_tbl.add_column(style="bold", width=20)
+        summary_tbl.add_column(width=12, justify="right")
+        summary_tbl.add_row("[cyan]Cycles Completed[/]", f"[bold green]{ITERATIONS}[/]")
+        summary_tbl.add_row("[cyan]Timeframes[/]", "[bold green]6[/]")
+        summary_tbl.add_row("[cyan]Indicators Computed[/]", "[bold green]RSI + MACD[/]")
+        summary_tbl.add_row("[dim]Total Duration[/]", f"{elapsed_total:.1f}s")
+
+        Console().print()
+        Console().print(summary_tbl)
+        Console().print()
+        Console().print(Panel(
+            "[bold green]✓ Validation complete — all cycles finished[/]\n"
+            "[dim]Compare results with Gradio dashboard for consistency[/]",
+            border_style="green",
+            expand=False,
+            padding=(1, 2)))
     else:
-        print("\n✅ Validation complete.")
+        print(f"\n✅ Validation complete — {elapsed_total:.1f}s elapsed")
 
 
 if __name__ == '__main__':
