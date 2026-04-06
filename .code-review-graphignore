@@ -1,0 +1,50 @@
+# Credentials & Secrets — NEVER parse these
+Credential/
+.env
+.env.*
+*.key
+*.pem
+secrets/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Git internals
+.git/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# Test cache
+.pytest_cache/
+htmlcov/
+
+# Runtime data
+data/cache/
+data/logs/
+data/source/
+data/output/
+data/downloads/
+
+# Playwright
+.playwright-mcp/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Legacy
+Dependencies/

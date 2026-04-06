@@ -54,6 +54,7 @@ OC_SNAPSHOTS_FILE = CACHE_DIR / 'oc_snapshots.json'
 DAY_OPEN_SYNC_FILE = CACHE_DIR / 'day_open_sync.json'
 DAY_OPENING_PRICES_FILE = CACHE_DIR / 'day_opening_prices.json'
 DAY_OPENING_STRADDLES_FILE = CACHE_DIR / 'day_opening_straddles.json'
+FUTURES_BUILDUP_CACHE_FILE = CACHE_DIR / 'futures_buildup_cache.json'
 
 
 def ensure_dirs():

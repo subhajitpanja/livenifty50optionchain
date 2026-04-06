@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/python -m pytest tests/ -v --tb=short --color=yes)",
+      "Bash(.venv/Scripts/python -m pytest tests/ -v --tb=short --color=no)",
+      "Bash(.venv/Scripts/python -m py_compile color_constants.py)",
+      "Bash(.venv/Scripts/python -m py_compile paths.py)",
+      "Bash(.venv/Scripts/python -m py_compile tui_components.py)",
+      "Bash(.venv/Scripts/python -m py_compile tui_theme.py)",
+      "Bash(.venv/Scripts/python -m py_compile ui_labels.py)",
+      "Bash(.venv/Scripts/python -c \"import gradio; import pandas; import numpy; import plotly; import requests; import rich; print\\('All critical imports OK'\\)\")",
+      "Bash(.venv/Scripts/python -m py_compile tests/conftest.py)",
+      "Bash(.venv/Scripts/python -m py_compile tests/test_13tabs.py)"
+    ]
+  }
+}

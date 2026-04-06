@@ -47,6 +47,7 @@ BU_PUT = {'LB': RED, 'SC': ORANGE, 'SB': GREEN, 'LU': YELLOW_GREEN}
 BU_FUT = {
     'Long Build Up': GREEN, 'Short Covering': YELLOW_GREEN,
     'Short Build Up': RED,  'Long Unwinding': ORANGE,
+    'Market Closed': '#888',
 }
 
 # ═══════════════════════════════════════════════════════════════════════════

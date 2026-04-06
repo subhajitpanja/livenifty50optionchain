@@ -1145,6 +1145,7 @@ def _futures(futures_data: list, ul: str) -> str:
             'Short Build Up': 'Short Build Up [Price ↓ + OI ↑]',
             'Short Covering':  'Short Covering [Price ↑ + OI ↓]',
             'Long Unwinding':  'Long Unwinding [Price ↓ + OI ↓]',
+            'Market Closed':   'Market Closed',
         }
         buildup = _bu_fut_display.get(buildup, buildup)
         oi_chg_color = GREEN if oi_chg_pct > 0 else RED
@@ -2065,6 +2066,22 @@ def _build_charts_background(data: dict):
 _straddle_data_cache: dict = {}
 #~# Per-expiry+timeframe figure caches  key = (expiry_idx, timeframe)
 _straddle_fig_cache: dict = {}
+
+# ── Plotly figure de-duplication — skip re-sending unchanged cached figures ──
+_last_sent_fig_ids: dict = {}  # key → id() of last figure sent to browser
+
+def _fig_or_skip(key: str, fig):
+    """Return figure if it's a new/rebuilt object, gr.update() if same cached object.
+    Plotly figures are ~500KB-1MB each. With 9 figures, skipping unchanged ones
+    saves ~4-9MB per tick (figures rebuild every ~60s, ticks every 3s).
+    """
+    if fig is None:
+        return None
+    fig_id = id(fig)
+    if _last_sent_fig_ids.get(key) == fig_id:
+        return gr.update()
+    _last_sent_fig_ids[key] = fig_id
+    return fig
 
 
 def _calc_rsi(series, period=14):
@@ -3386,16 +3403,23 @@ _cached_underlying = None
 
 
 def refresh_data(underlying, expiry_idx, num_strikes):
-    """* Full refresh - fetches all data including option chain"""
-    global _cached_full_data, _cached_underlying, _last_valid_oc_html
+    """* Full refresh - fetches all data including option chain.
+    Used for initial load + manual button click — always sends everything including history.
+    """
+    global _cached_full_data, _cached_underlying, _last_valid_oc_html, _last_history_sent_hash
     try:
         underlying = str(underlying)
         data = fetch_all_data(underlying, int(expiry_idx), int(num_strikes))
         if data['error']:
             err = _render('error', message=data['error'])
+            #~# On error: preserve existing history tabs
             _oc_hist = _get_oc_history_htmls()
             _oi_dist_hist = _get_oi_dist_history_htmls()
-            return (err, "", "", _last_valid_oi_charts, *_oi_dist_hist, _get_oi_dist_ts_html(), _last_valid_oc_html, *_oc_hist, _get_oc_ts_html(), "", None, None, None, None, "", None, None, None, None, None)
+            return (err, "", "", _last_valid_oi_charts,
+                    *_oi_dist_hist, _get_oi_dist_ts_html(),
+                    _last_valid_oc_html,
+                    *_oc_hist, _get_oc_ts_html(),
+                    "", None, None, None, None, "", None, None, None, None, None)
         _cached_underlying = underlying
 
         header_html = _header(data)
@@ -3419,6 +3443,8 @@ def refresh_data(underlying, expiry_idx, num_strikes):
         _oi_charts_live = _oi_charts(data)
         _push_oi_dist_snapshot(_oi_charts_live, df=data.get('option_df'))
         _oi_dist_hist = _get_oi_dist_history_htmls()
+        #~# Full load — sync history hash so smart_refresh doesn't re-send immediately
+        _last_history_sent_hash = _oc_last_data_hash
         return (
             header_html,
             _oi_history_panel(data),
@@ -3443,9 +3469,14 @@ def refresh_data(underlying, expiry_idx, num_strikes):
         )
     except Exception as e:
         err = _render('error', message=str(e))
+        #~# On error: preserve existing history tabs
         _oc_hist = _get_oc_history_htmls()
         _oi_dist_hist = _get_oi_dist_history_htmls()
-        return (err, "", "", _last_valid_oi_charts, *_oi_dist_hist, _get_oi_dist_ts_html(), _last_valid_oc_html, *_oc_hist, _get_oc_ts_html(), "", None, None, None, None, "", None, None, None, None, None)
+        return (err, "", "", _last_valid_oi_charts,
+                *_oi_dist_hist, _get_oi_dist_ts_html(),
+                _last_valid_oc_html,
+                *_oc_hist, _get_oc_ts_html(),
+                "", None, None, None, None, "", None, None, None, None, None)
 
 
 _refresh_counter = 0  # track refresh cycles
@@ -3555,17 +3586,45 @@ def _get_oi_dist_ts_html() -> str:
     return f'<div id="oi-dist-ts-data" class="oc-hidden" data-ts=\'{escaped}\'></div>'
 
 
+_last_history_sent_hash: str = ''  #~# tracks last _oc_last_data_hash for which history was sent to browser
+_last_data_fingerprint: str = ''  #~# fast fingerprint (spot+vix+totalOI) for full-skip when data unchanged
+
+#~# Total outputs count — must match len(outs) in the Gradio UI block
+_OUTPUT_COUNT = 4 + HISTORY_TAB_COUNT + 1 + 1 + HISTORY_TAB_COUNT + 1 + 1 + 4 + 1 + 3 + 1 + 1  # = 46
+
+
+def _history_noop():
+    """Return (oi_dist_noop, oc_noop) for gr.update() no-ops on history slots.
+    Used when history data hasn't changed — avoids sending multi-MB HTML payloads.
+    oi_dist_noop: [*oi_dist_hist(14), oi_dist_ts(1)] = 15 slots.
+    oc_noop:      [*oc_hist(14), oc_ts(1)]            = 15 slots.
+    """
+    oi = [gr.update() for _ in range(HISTORY_TAB_COUNT + 1)]
+    oc = [gr.update() for _ in range(HISTORY_TAB_COUNT + 1)]
+    return oi, oc
+
+
 def smart_refresh(underlying, expiry_idx, num_strikes):
     """!
-    Priority-based refresh:
-      P1 – Option chain (full fetch_all_data)
-      P2 – Spot price
-      P3 – VIX, Futures (batch LTP between full refreshes)
+    Three-tier refresh — maximally fast live, zero waste, lazy history.
 
-    Every call does a FULL refresh so option chain always updates.
-    Rich console logging tracks timing and errors.
+    Tier 0 — DATA UNCHANGED (most ticks on weekends/after hours):
+      All 46 outputs → gr.update() (zero bytes to browser).
+      Fast fingerprint check: spot + vix + futures + total OI.
+
+    Tier 1 — DATA CHANGED, LIVE ONLY (most market-hour ticks):
+      Live panels rebuilt and sent. History tabs → gr.update() unless
+      the OC data hash actually changed. Plotly figures → gr.update()
+      if the cached figure object hasn't been rebuilt.
+
+    Tier 2 — DATA CHANGED + HISTORY CHANGED (when OI shifts):
+      Everything sent including history tabs.
+
+    This prevents Chrome OOM by reducing per-tick payload from ~2-3MB
+    to near-zero on unchanged ticks and ~300KB on most changed ticks.
     """
     global _cached_full_data, _cached_underlying, _refresh_counter, _last_valid_oc_html
+    global _last_history_sent_hash, _last_data_fingerprint
     import time as _time
 
     _refresh_counter += 1
@@ -3584,9 +3643,25 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
             if data['error']:
                 _tui.log_error(f"#{cycle} Option chain error: {data['error']}")
                 err = _render('error', message=data['error'])
-                _oc_hist = _get_oc_history_htmls()
-                _oi_dist_hist = _get_oi_dist_history_htmls()
-                return (err, "", "", _last_valid_oi_charts, *_oi_dist_hist, _get_oi_dist_ts_html(), _last_valid_oc_html, *_oc_hist, _get_oc_ts_html(), "", None, None, None, None, "", None, None, None, None, None)
+                #~# On error: keep live error, preserve history tabs (don't wipe)
+                _oi_noop, _oc_noop = _history_noop()
+                return (err, "", "", _last_valid_oi_charts,
+                        *_oi_noop,
+                        _last_valid_oc_html,
+                        *_oc_noop,
+                        "", None, None, None, None, "", None, None, None, None, None)
+
+            # ── TIER 0: Fast fingerprint — skip ALL if data truly unchanged ──
+            _odf = data.get('option_df')
+            _total_c = int(_odf['C_OI'].sum()) if _odf is not None and 'C_OI' in _odf.columns else 0
+            _total_p = int(_odf['P_OI'].sum()) if _odf is not None and 'P_OI' in _odf.columns else 0
+            _fp = f"{data.get('spot_price', 0):.2f}|{data.get('vix_current', 0):.2f}|{data.get('fut_price', 0):.2f}|{_total_c}|{_total_p}"
+            if _fp == _last_data_fingerprint:
+                #~# Data unchanged — send nothing to browser (zero bytes over WebSocket)
+                dt_total = _time.time() - t0
+                _tui.log_info(f"#{cycle} SKIP (unchanged) OC:{dt_oc:.2f}s Total:{dt_total:.2f}s")
+                return tuple(gr.update() for _ in range(_OUTPUT_COUNT))
+            _last_data_fingerprint = _fp
 
             data['_update_oi'] = True
             _cached_full_data = data
@@ -3613,6 +3688,7 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
         _cached_full_data = data
         data['_update_oi'] = True
 
+        # ── TIER 1: LIVE PANELS (always rebuilt and sent when data changed) ──
         header_html = _header(data)
         data['_update_oi'] = False
         _cached_full_data['_update_oi'] = False
@@ -3632,10 +3708,10 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
             option_df=_odf,
         )
 
-        #~# Charts: return cached/placeholder immediately, build in background
+        #~# Charts: return cached/placeholder, skip if figure object unchanged
         s_fig0_15, s_fig1_15, s_fig0_5, s_fig1_5 = _get_cached_or_placeholder_charts()
         _chart_executor.submit(_build_charts_background, data)
-        #~# New ATM triple row + EMA candlestick + OI candle — build in background, return cached/placeholder
+        #~# ATM triple + EMA + OI candle — background build, skip if unchanged
         atm_up_ph, atm_atm_ph, atm_down_ph, ema_ph, oi_candle_ph = _get_cached_or_placeholder_atm_row(underlying)
         _atm_row_executor.submit(_build_atm_triple_background, data)
         tf_table = _build_tf_indicators_table(underlying, spot_price=data.get('spot_price', 0))
@@ -3643,32 +3719,42 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
         _analytics_live = _analytics(data['metrics'], data)
         _oc_combined = _oc_live + _analytics_live
         _last_valid_oc_html = _oc_combined
-        _push_oc_snapshot(_oc_combined, df=data['option_df'])
-        _oc_hist = _get_oc_history_htmls()
         _oi_charts_live = _oi_charts(data)
+
+        # ── TIER 2: HISTORY TABS (lazy — only sent when OC data hash changed) ──
+        _push_oc_snapshot(_oc_combined, df=data['option_df'])
         _push_oi_dist_snapshot(_oi_charts_live, df=data.get('option_df'))
-        _oi_dist_hist = _get_oi_dist_history_htmls()
+
+        if _oc_last_data_hash != _last_history_sent_hash:
+            _oi_dist_hist = _get_oi_dist_history_htmls()
+            _oc_hist = _get_oc_history_htmls()
+            _last_history_sent_hash = _oc_last_data_hash
+            oi_hist_out = [*_oi_dist_hist, _get_oi_dist_ts_html()]
+            oc_hist_out = [*_oc_hist, _get_oc_ts_html()]
+            _tui.log_info(f"#{cycle} History tabs updated (data changed)")
+        else:
+            oi_hist_out, oc_hist_out = _history_noop()
+
+        #~# Apply Plotly figure de-duplication — skip re-sending unchanged cached figures
         return (
             header_html,
             _oi_history_panel(data),
             "",  #~# tech_analysis slot (removed, kept for output parity)
             _oi_charts_live,
-            *_oi_dist_hist,
-            _get_oi_dist_ts_html(),
+            *oi_hist_out,
             _oc_combined,
-            *_oc_hist,
-            _get_oc_ts_html(),
+            *oc_hist_out,
             _futures(data.get('futures_buildup', []), underlying),
-            s_fig0_15,
-            s_fig1_15,
-            s_fig0_5,
-            s_fig1_5,
+            _fig_or_skip('s15_0', s_fig0_15),
+            _fig_or_skip('s15_1', s_fig1_15),
+            _fig_or_skip('s5_0', s_fig0_5),
+            _fig_or_skip('s5_1', s_fig1_5),
             tf_table,
-            atm_up_ph,
-            atm_atm_ph,
-            atm_down_ph,
-            ema_ph,
-            oi_candle_ph,
+            _fig_or_skip('atm_up', atm_up_ph),
+            _fig_or_skip('atm_atm', atm_atm_ph),
+            _fig_or_skip('atm_down', atm_down_ph),
+            _fig_or_skip('ema', ema_ph),
+            _fig_or_skip('oi_candle', oi_candle_ph),
         )
     except Exception as e:
         _tui.log_error(f"#{cycle} FATAL: {e}")
@@ -3681,9 +3767,13 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
             error=str(e),
         )
         err = _render('error', message=str(e))
-        _oc_hist = _get_oc_history_htmls()
-        _oi_dist_hist = _get_oi_dist_history_htmls()
-        return (err, "", "", _last_valid_oi_charts, *_oi_dist_hist, _get_oi_dist_ts_html(), _last_valid_oc_html, *_oc_hist, _get_oc_ts_html(), "", None, None, None, None, "", None, None, None, None, None)
+        #~# On error: show error in header, preserve history tabs (don't wipe on transient errors)
+        _oi_noop, _oc_noop = _history_noop()
+        return (err, "", "", _last_valid_oi_charts,
+                *_oi_noop,
+                _last_valid_oc_html,
+                *_oc_noop,
+                "", None, None, None, None, "", None, None, None, None, None)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -3819,6 +3909,29 @@ window.ocSortCol = ocSortCol;
     }
     setInterval(updateAllTimestamps, 2000);
 })();
+
+// ── Browser health monitor — auto-reload before Chrome OOMs ───────────
+(function() {
+    var _startTime = Date.now();
+    setInterval(function() {
+        var runMin = (Date.now() - _startTime) / 60000;
+        var shouldReload = false;
+        // Check JS heap if Chrome exposes it
+        if (window.performance && window.performance.memory) {
+            var usageMB = window.performance.memory.usedJSHeapSize / (1024 * 1024);
+            if (usageMB > 1500) {
+                console.warn('[OC] JS heap at ' + usageMB.toFixed(0) + 'MB — reloading');
+                shouldReload = true;
+            }
+        }
+        // Hard safety net: reload every 45 minutes regardless
+        if (runMin > 45) {
+            console.warn('[OC] Running ' + runMin.toFixed(0) + 'min — periodic reload');
+            shouldReload = true;
+        }
+        if (shouldReload) window.location.reload();
+    }, 30000);
+})();
 """
 
 with gr.Blocks(title="NIFTY Option Chain Live") as demo:
@@ -3934,7 +4047,7 @@ if __name__ == "__main__":
     _kill_port_7860()
     _tui.log_info("Starting Gradio server on http://0.0.0.0:7860")
     _tui.log_info(f"Market: {_market_status_str()}")
-    demo.queue(default_concurrency_limit=1)  # prevent stacked refreshes
+    demo.queue(default_concurrency_limit=1, max_size=3)  # prevent stacked refreshes + limit queue buildup
     demo.launch(
         server_name="0.0.0.0",
         server_port=7860,

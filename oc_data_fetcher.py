@@ -23,6 +23,7 @@ from paths import (
     CACHE_DIR, OUTPUT_DIR,
     SPOT_PRICE_CACHE_FILE, VIX_CACHE_FILE, OI_SNAPSHOTS_FILE,
     DAY_OPEN_SYNC_FILE, DAY_OPENING_PRICES_FILE, DAY_OPENING_STRADDLES_FILE,
+    FUTURES_BUILDUP_CACHE_FILE,
     ensure_dirs,
 )
 
@@ -859,6 +860,28 @@ _prev_futures_cache: Optional[list] = None
 # Add a new cache for last valid buildup results
 _last_valid_futures_buildup: Optional[list] = None  #~# Persists last good result
 
+
+def _load_futures_buildup_cache() -> Optional[list]:
+    """Load futures buildup data from file cache (survives app restarts)."""
+    try:
+        if FUTURES_BUILDUP_CACHE_FILE.exists():
+            with open(FUTURES_BUILDUP_CACHE_FILE, 'r') as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
+
+
+def _save_futures_buildup_cache(data: list):
+    """Save futures buildup data to file cache."""
+    try:
+        FUTURES_BUILDUP_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(FUTURES_BUILDUP_CACHE_FILE, 'w') as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+
 def get_futures_buildup_data(underlying: str = "NIFTY") -> list:
     """
     * Get futures build-up data: live OI + LTP merged with previous day.
@@ -866,6 +889,10 @@ def get_futures_buildup_data(underlying: str = "NIFTY") -> list:
     * Falls back to last valid data if live quotes return zero OI/LTP.
     """
     global _prev_futures_cache, _last_valid_futures_buildup
+
+    # * On first call, hydrate in-memory cache from file (survives restarts)
+    if _last_valid_futures_buildup is None:
+        _last_valid_futures_buildup = _load_futures_buildup_cache()
 
     instruments = _load_futures_instruments(underlying)
     if not instruments:
@@ -924,7 +951,7 @@ def get_futures_buildup_data(underlying: str = "NIFTY") -> list:
             else:
                 buildup = "Long Unwinding"
         else:
-            buildup = ""  #~# Unknown — no live data yet
+            buildup = "Market Closed"  #~# Unknown — no live data yet (weekend/holiday/pre-market)
 
         results.append({
             'expiry': inst['expiry'],
@@ -946,6 +973,7 @@ def get_futures_buildup_data(underlying: str = "NIFTY") -> list:
     # * Update cache only when we have valid data
     if any_valid:
         _last_valid_futures_buildup = results
+        _save_futures_buildup_cache(results)  #~# Persist to file for after-market use
 
     return results
 
