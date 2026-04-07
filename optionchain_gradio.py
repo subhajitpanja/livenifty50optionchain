@@ -962,6 +962,23 @@ def _oc_table(df: pd.DataFrame, atm: float) -> str:
     c_oi_rank = {int(v): i + 1 for i, v in enumerate(c_oi_vals) if v > 0}
     p_oi_rank = {int(v): i + 1 for i, v in enumerate(p_oi_vals) if v > 0}
 
+    #~# Pre-compute ATM ±1 strike set and per-strike IV lookup for IV highlight logic
+    _atm_iv_strikes: set[int] = set()
+    _strike_iv: dict[int, tuple[float, float]] = {}  # strike → (C_IV, P_IV)
+    if atm_int and 'C_IV' in df.columns and 'P_IV' in df.columns:
+        _sorted_strikes = sorted(df['Strike'].dropna().unique())
+        _sorted_int = [int(float(s)) for s in _sorted_strikes]
+        if atm_int in _sorted_int:
+            _ai = _sorted_int.index(atm_int)
+            for _off in (-1, 0, 1):
+                _si = _ai + _off
+                if 0 <= _si < len(_sorted_int):
+                    _atm_iv_strikes.add(_sorted_int[_si])
+        for _, _r in df.iterrows():
+            _sk = int(float(_r.get('Strike', 0)))
+            if _sk in _atm_iv_strikes:
+                _strike_iv[_sk] = (float(_r.get('C_IV', 0) or 0), float(_r.get('P_IV', 0) or 0))
+
     #~# Build header cells using CSS classes — with sort metadata
     hdr = ''
     for i, (n, key, a) in enumerate(cols):
@@ -987,6 +1004,11 @@ def _oc_table(df: pd.DataFrame, atm: float) -> str:
         row_cls = 'oc-table__row--atm' if is_atm else 'oc-table__row'
         #~# No text color override for ATM row — preserve signal colors for all cells
         dc = TEXT_DEFAULT
+        #~# Integer strike for IV highlight lookup
+        try:
+            _strike_int = int(float(strike))
+        except (ValueError, TypeError):
+            _strike_int = 0
 
         cells = []
         for cidx, (_, key, align) in enumerate(cols):
@@ -1055,6 +1077,14 @@ def _oc_table(df: pd.DataFrame, atm: float) -> str:
                         c = GREEN if v > 0 else RED if v < 0 else MUTED
                     elif 'IV' in key:
                         c = MUTED_LIGHT
+                        #~# ATM ±1 IV highlight: Call IV > Put IV → blue; Put IV > Call IV + 3 → blue
+                        _iv_pair = _strike_iv.get(_strike_int)
+                        if _iv_pair:
+                            _c_iv, _p_iv = _iv_pair
+                            if key == 'C_IV' and _c_iv > _p_iv:
+                                c = LIGHT_BLUE
+                            elif key == 'P_IV' and _p_iv > _c_iv + 3:
+                                c = LIGHT_BLUE
                     else:
                         c = dc
                 except (ValueError, TypeError):
@@ -3400,6 +3430,7 @@ def _get_cached_or_placeholder_atm_row(underlying: str = 'NIFTY'):
 #~# Cached data to reduce refreshes
 _cached_full_data = {}
 _cached_underlying = None
+_last_valid_futures_html: str = ''  #~# Cache last non-empty futures buildup HTML for market-closed display
 
 
 def refresh_data(underlying, expiry_idx, num_strikes):
@@ -3407,6 +3438,7 @@ def refresh_data(underlying, expiry_idx, num_strikes):
     Used for initial load + manual button click — always sends everything including history.
     """
     global _cached_full_data, _cached_underlying, _last_valid_oc_html, _last_history_sent_hash
+    global _last_valid_futures_html
     try:
         underlying = str(underlying)
         data = fetch_all_data(underlying, int(expiry_idx), int(num_strikes))
@@ -3419,7 +3451,7 @@ def refresh_data(underlying, expiry_idx, num_strikes):
                     *_oi_dist_hist, _get_oi_dist_ts_html(),
                     _last_valid_oc_html,
                     *_oc_hist, _get_oc_ts_html(),
-                    "", None, None, None, None, "", None, None, None, None, None)
+                    _last_valid_futures_html, None, None, None, None, "", None, None, None, None, None)
         _cached_underlying = underlying
 
         header_html = _header(data)
@@ -3445,6 +3477,12 @@ def refresh_data(underlying, expiry_idx, num_strikes):
         _oi_dist_hist = _get_oi_dist_history_htmls()
         #~# Full load — sync history hash so smart_refresh doesn't re-send immediately
         _last_history_sent_hash = _oc_last_data_hash
+        #~# Futures buildup: render and cache; fallback to cached HTML when market closed
+        futures_html = _futures(data.get('futures_buildup', []), underlying)
+        if futures_html:
+            _last_valid_futures_html = futures_html
+        else:
+            futures_html = _last_valid_futures_html
         return (
             header_html,
             _oi_history_panel(data),
@@ -3455,7 +3493,7 @@ def refresh_data(underlying, expiry_idx, num_strikes):
             _oc_combined,
             *_oc_hist,
             _get_oc_ts_html(),
-            _futures(data.get('futures_buildup', []), underlying),
+            futures_html,
             s_fig0_15,
             s_fig1_15,
             s_fig0_5,
@@ -3476,7 +3514,7 @@ def refresh_data(underlying, expiry_idx, num_strikes):
                 *_oi_dist_hist, _get_oi_dist_ts_html(),
                 _last_valid_oc_html,
                 *_oc_hist, _get_oc_ts_html(),
-                "", None, None, None, None, "", None, None, None, None, None)
+                _last_valid_futures_html, None, None, None, None, "", None, None, None, None, None)
 
 
 _refresh_counter = 0  # track refresh cycles
@@ -3491,9 +3529,12 @@ _OC_EMPTY = _render('oc_empty')
 
 _oc_ts_history: _deque[str] = _deque(maxlen=HISTORY_TAB_COUNT)  # timestamps parallel to _oc_html_history
 _oc_last_data_hash: str = ''  # fingerprint of last pushed DataFrame content
+_oc_hash_history: _deque[str] = _deque(maxlen=HISTORY_TAB_COUNT)  #~# hash per history slot for adjacent-dedup
 
 def _push_oc_snapshot(html: str, df=None):
-    """Push current OC table HTML into history only if data actually changed."""
+    """Push current OC table HTML into history only if data actually changed.
+    Ensures no two adjacent history tabs ever contain identical data.
+    """
     import datetime as _dt_snap
     import hashlib as _hl
     global _oc_last_data_hash
@@ -3508,9 +3549,15 @@ def _push_oc_snapshot(html: str, df=None):
         for col in _snap.select_dtypes(include='number').columns:
             _snap[col] = _snap[col].round(2)
         data_hash = _hl.md5(_snap.to_csv(index=False).encode()).hexdigest()
+        #~# Block if identical to the most recent entry (standard dedup)
         if data_hash == _oc_last_data_hash:
             return  # same underlying data — skip
+        #~# Also block if identical to the second-most-recent entry (prevents A-B-A-B oscillation
+        #~# that would make adjacent tabs 2 & 3 identical after the next push shifts everything)
+        if len(_oc_hash_history) >= 2 and data_hash == _oc_hash_history[1]:
+            return
         _oc_last_data_hash = data_hash
+        _oc_hash_history.appendleft(data_hash)
     else:
         # fallback: compare raw HTML
         if _oc_html_history and _oc_html_history[0] == html:
@@ -3541,11 +3588,14 @@ def _get_oc_ts_html() -> str:
 _oi_dist_html_history: _deque[str] = _deque(maxlen=HISTORY_TAB_COUNT)
 _oi_dist_ts_history: _deque[str] = _deque(maxlen=HISTORY_TAB_COUNT)
 _oi_dist_last_hash: str = ''
+_oi_dist_hash_history: _deque[str] = _deque(maxlen=HISTORY_TAB_COUNT)  #~# hash per slot for adjacent-dedup
 _OI_DIST_EMPTY = '<div class="oc-empty">No OI snapshot yet — collecting history...</div>'
 
 
 def _push_oi_dist_snapshot(html: str, df=None):
-    """Push current OI Distribution HTML into history only if data actually changed."""
+    """Push current OI Distribution HTML into history only if data actually changed.
+    Ensures no two adjacent history tabs ever contain identical data.
+    """
     import datetime as _dt_snap
     import hashlib as _hl
     global _oi_dist_last_hash
@@ -3558,9 +3608,14 @@ def _push_oi_dist_snapshot(html: str, df=None):
             for col in _snap.select_dtypes(include='number').columns:
                 _snap[col] = _snap[col].round(0)
             data_hash = _hl.md5(_snap.to_csv(index=False).encode()).hexdigest()
+            #~# Block if identical to the most recent entry
             if data_hash == _oi_dist_last_hash:
                 return
+            #~# Also block if identical to second-most-recent (prevents adjacent duplicates after shift)
+            if len(_oi_dist_hash_history) >= 2 and data_hash == _oi_dist_hash_history[1]:
+                return
             _oi_dist_last_hash = data_hash
+            _oi_dist_hash_history.appendleft(data_hash)
     else:
         if _oi_dist_html_history and _oi_dist_html_history[0] == html:
             return
@@ -3624,7 +3679,7 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
     to near-zero on unchanged ticks and ~300KB on most changed ticks.
     """
     global _cached_full_data, _cached_underlying, _refresh_counter, _last_valid_oc_html
-    global _last_history_sent_hash, _last_data_fingerprint
+    global _last_history_sent_hash, _last_data_fingerprint, _last_valid_futures_html
     import time as _time
 
     _refresh_counter += 1
@@ -3649,7 +3704,7 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
                         *_oi_noop,
                         _last_valid_oc_html,
                         *_oc_noop,
-                        "", None, None, None, None, "", None, None, None, None, None)
+                        _last_valid_futures_html, None, None, None, None, "", None, None, None, None, None)
 
             # ── TIER 0: Fast fingerprint — skip ALL if data truly unchanged ──
             _odf = data.get('option_df')
@@ -3736,6 +3791,12 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
             oi_hist_out, oc_hist_out = _history_noop()
 
         #~# Apply Plotly figure de-duplication — skip re-sending unchanged cached figures
+        #~# Futures buildup: render and cache; fallback to cached HTML when market closed
+        futures_html = _futures(data.get('futures_buildup', []), underlying)
+        if futures_html:
+            _last_valid_futures_html = futures_html
+        else:
+            futures_html = _last_valid_futures_html
         return (
             header_html,
             _oi_history_panel(data),
@@ -3744,7 +3805,7 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
             *oi_hist_out,
             _oc_combined,
             *oc_hist_out,
-            _futures(data.get('futures_buildup', []), underlying),
+            futures_html,
             _fig_or_skip('s15_0', s_fig0_15),
             _fig_or_skip('s15_1', s_fig1_15),
             _fig_or_skip('s5_0', s_fig0_5),
@@ -3773,7 +3834,7 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
                 *_oi_noop,
                 _last_valid_oc_html,
                 *_oc_noop,
-                "", None, None, None, None, "", None, None, None, None, None)
+                _last_valid_futures_html, None, None, None, None, "", None, None, None, None, None)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
