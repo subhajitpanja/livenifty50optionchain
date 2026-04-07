@@ -68,6 +68,12 @@ htmlcov/
 *.temp
 .cache/
 
+# Ngrok (local binary + config)
+.ngrok/
+
+# Playwright MCP snapshots
+.playwright-mcp/
+
 # OS
 Thumbs.db
 .AppleDouble

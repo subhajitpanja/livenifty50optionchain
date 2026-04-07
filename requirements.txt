@@ -40,6 +40,9 @@ tqdm>=4.67.0
 # Production deployment
 uvicorn>=0.42.0
 
+# Ngrok tunnel (project-local, for secure sharing)
+pyngrok>=8.0.0
+
 # Code Review & Documentation
 code-review-graph>=2.1.0
 

@@ -39,6 +39,9 @@ data/source/
 data/output/
 data/downloads/
 
+# Ngrok (local binary + authtoken)
+.ngrok/
+
 # Playwright
 .playwright-mcp/
 

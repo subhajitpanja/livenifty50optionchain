@@ -10,12 +10,14 @@ livenifty50optionchain/
 │   ├── setup.bat                     # Windows setup script
 │   ├── setup.sh                      # Linux/Mac setup script
 │   ├── run_tests.bat                 # Windows test runner
-│   └── run_tests.sh                  # Linux/Mac test runner
+│   ├── run_tests.sh                  # Linux/Mac test runner
+│   └── run_ngrok.py                  # Ngrok tunnel with basic auth
 │
 ├── 📚 Documentation
 │   ├── README.md                     # Project overview
 │   ├── agents.md                     # AI agents & code-review-graph config
-│   └── PROJECT_STRUCTURE.md          # This file
+│   ├── PROJECT_STRUCTURE.md          # This file
+│   └── docs/guides/NGROK_SETUP.md   # Ngrok setup & usage guide
 │
 ├── 🔧 Configuration Directories
 │   ├── .vscode/                      # VS Code settings
@@ -25,6 +27,10 @@ livenifty50optionchain/
 │   │   ├── config.yaml               # Graph configuration
 │   │   ├── graph.db                  # SQLite knowledge graph
 │   │   └── cache/                    # Temporary cache files
+│   │
+│   ├── .ngrok/                       # Ngrok tunnel (gitignored)
+│   │   ├── ngrok.exe                 # Project-local ngrok binary
+│   │   └── authtoken.txt             # Ngrok authtoken (secret)
 │   │
 │   └── .git/                         # Git repository data
 │
@@ -77,6 +83,7 @@ livenifty50optionchain/
 - **oc_data_fetcher.py** - Handles API calls and data retrieval
 - **paths.py** - Centralized path management
 - **color_constants.py** - UI color definitions for consistency
+- **run_ngrok.py** - Ngrok tunnel with basic auth for secure remote sharing
 
 ### UI & Theming
 - **tui_components.py** - Reusable terminal UI components
@@ -85,7 +92,8 @@ livenifty50optionchain/
 ### Configuration
 - **.vscode/settings.json** - Python interpreter path, formatting, linting
 - **.code-review-graph/config.yaml** - Code-review-graph settings
-- **.gitignore** - Git exclusion rules (Credential/, .venv/, etc.)
+- **.ngrok/authtoken.txt** - Ngrok authtoken (gitignored, see docs/guides/NGROK_SETUP.md)
+- **.gitignore** - Git exclusion rules (Credential/, .venv/, .ngrok/, etc.)
 
 ### Testing
 - **tests/** - Test suite directory
@@ -132,7 +140,11 @@ This will:
 source .venv/bin/activate     # Linux/Mac
 
 # Run main application
-python optionchain_gradio.py
+python run.py
+
+# (Optional) Expose via ngrok tunnel with basic auth
+python run_ngrok.py --user USERNAME --pass PASSWORD
+# See docs/guides/NGROK_SETUP.md for full setup instructions
 ```
 
 ## Dependency Categories
@@ -154,6 +166,7 @@ python optionchain_gradio.py
 
 ### Optional Dependencies
 - **Browser Automation**: playwright (NSE CSV downloads)
+- **Remote Sharing**: pyngrok (secure ngrok tunnel with basic auth)
 
 ## Security Notes
 
@@ -164,7 +177,9 @@ python optionchain_gradio.py
 - Environment variables for production secrets
 
 ✅ **Safety Measures**
-- `.gitignore` excludes `Credential/` directory
+- `.gitignore` excludes `Credential/`, `.ngrok/`, `.venv/`
+- Ngrok authtoken stored in `.ngrok/authtoken.txt` (gitignored)
+- Ngrok tunnel requires basic auth (username + password per session)
 - Virtual environment in `.venv` (not committed)
 - `code-review-graph` runs locally (no cloud upload)
 - No credentials exposed in logs or configuration
@@ -227,7 +242,9 @@ code-review-graph install-hooks
 ### Files to Ignore
 ❌ .venv/ (virtual environment)
 ❌ Credential/ (API keys)
+❌ .ngrok/ (ngrok binary + authtoken)
 ❌ .code-review-graph/ (generated database)
+❌ .playwright-mcp/ (Playwright MCP snapshots)
 ❌ __pycache__/ (compiled Python)
 ❌ *.pyc (compiled modules)
 ❌ .pytest_cache/ (test cache)
@@ -236,5 +253,5 @@ code-review-graph install-hooks
 
 ---
 
-**Last Updated**: 2026-04-06
-**Version**: 1.0
+**Last Updated**: 2026-04-08
+**Version**: 1.1

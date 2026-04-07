@@ -18,7 +18,25 @@
       "mcp__plugin_playwright_playwright__browser_evaluate",
       "mcp__plugin_playwright_playwright__browser_close",
       "Bash(PYTHONIOENCODING=utf-8 python:*)",
-      "mcp__plugin_playwright_playwright__browser_take_screenshot"
+      "mcp__plugin_playwright_playwright__browser_take_screenshot",
+      "WebFetch(domain:gemini.google.com)",
+      "Bash(ngrok version:*)",
+      "Bash(where choco:*)",
+      "Bash(where winget:*)",
+      "Bash(choco install:*)",
+      "Bash(winget install:*)",
+      "Bash(cmd.exe /c \"winget install ngrok.ngrok --accept-source-agreements --accept-package-agreements\")",
+      "Bash(cmd.exe /c \"ngrok version\")",
+      "Bash(cmd.exe /c \"where /R C:\\\\Users \\\\\"ngrok.exe\\\\\"\")",
+      "Bash(cmd.exe /c \"where /R C:\\\\ProgramData \\\\\"ngrok.exe\\\\\"\")",
+      "Bash(cmd.exe /c \"where /R \\\\\"C:\\\\Program Files\\\\\" \\\\\"ngrok.exe\\\\\"\")",
+      "Read(//c/Users/Subhajit Panja/AppData/Local/Microsoft/WinGet/Links/**)",
+      "Read(//c/Users/Subhajit Panja/AppData/Local/**)",
+      "Bash('/c/Users/Subhajit Panja/AppData/Local/Microsoft/WinGet/Packages/Ngrok.Ngrok_Microsoft.Winget.Source_8wekyb3d8bbwe/ngrok.exe' version)",
+      "Bash(e:/Repository/livenifty50optionchain/.venv/Scripts/pip.exe install:*)",
+      "Bash(e:/Repository/livenifty50optionchain/.venv/Scripts/python.exe -c \"from pyngrok import ngrok; print\\('pyngrok ready'\\); from pyngrok.conf import PyngrokConfig; c = PyngrokConfig\\(\\); print\\(f'ngrok binary will be at: {c.ngrok_path}'\\)\")",
+      "Bash(e:/Repository/livenifty50optionchain/.venv/Scripts/python.exe -c ':*)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/test_ngrok_setup.py -v)"
     ]
   }
 }

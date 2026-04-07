@@ -87,6 +87,9 @@ livenifty50optionchain/
 ├── tests/                       # Test suite (14 test files)
 ├── scripts/                     # Helper scripts
 ├── docs/                        # Documentation
+│   └── guides/NGROK_SETUP.md   # Ngrok setup & usage guide
+├── run_ngrok.py                 # Ngrok tunnel with basic auth
+├── .ngrok/                      # Ngrok binary + authtoken (gitignored)
 ├── .code-review-graphignore     # Excludes credentials from graph
 ├── agents.md                    # This file
 ├── requirements.txt             # Python dependencies
@@ -112,7 +115,10 @@ Both scripts install all dependencies and configure code-review-graph automatica
 
 ```bash
 # Terminal 1: Run the dashboard
-python optionchain_gradio.py
+python run.py
+
+# Terminal 2 (optional): Expose via ngrok tunnel with basic auth
+python run_ngrok.py --user USERNAME --pass PASSWORD
 
 # Graph updates automatically on git commit via hooks
 # For live updates during editing (optional):
@@ -166,4 +172,4 @@ code-review-graph install
 - **License**: MIT
 
 ---
-Last Updated: 2026-04-06 | Version: 2.1.0
+Last Updated: 2026-04-08 | Version: 2.1.0
