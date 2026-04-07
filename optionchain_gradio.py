@@ -1088,7 +1088,7 @@ def _oc_table(df: pd.DataFrame, atm: float) -> str:
     c_oi_rank = {int(v): i + 1 for i, v in enumerate(c_oi_vals) if v > 0}
     p_oi_rank = {int(v): i + 1 for i, v in enumerate(p_oi_vals) if v > 0}
 
-    #~# Pre-compute ATM ±1 strike set and per-strike IV lookup for IV highlight logic
+    #~# Pre-compute ATM ±2 strike set and per-strike IV lookup for IV highlight logic
     _atm_iv_strikes: set[int] = set()
     _strike_iv: dict[int, tuple[float, float]] = {}  # strike → (C_IV, P_IV)
     if atm_int and 'C_IV' in df.columns and 'P_IV' in df.columns:
@@ -1096,7 +1096,7 @@ def _oc_table(df: pd.DataFrame, atm: float) -> str:
         _sorted_int = [int(float(s)) for s in _sorted_strikes]
         if atm_int in _sorted_int:
             _ai = _sorted_int.index(atm_int)
-            for _off in (-1, 0, 1):
+            for _off in (-2, -1, 0, 1, 2):
                 _si = _ai + _off
                 if 0 <= _si < len(_sorted_int):
                     _atm_iv_strikes.add(_sorted_int[_si])
@@ -1201,9 +1201,15 @@ def _oc_table(df: pd.DataFrame, atm: float) -> str:
                     txt = f'{v:.1f}' if 'IV' in key else f'{v:+.2f}%'
                     if 'Chg' in key:
                         c = GREEN if v > 0 else RED if v < 0 else MUTED
+                        #~# OI Chg% prefix: ■ for ≥+1001%, ● for >+500% (only positive/increase)
+                        if key in ('C_OI_Chg_Pct', 'P_OI_Chg_Pct') and v > 0:
+                            if v >= 1001:
+                                txt = f'<span style="color:{LIGHT_BLUE}">■</span> {txt}'
+                            elif v > 500:
+                                txt = f'<span style="color:{GOLD}">●</span> {txt}'
                     elif 'IV' in key:
                         c = MUTED_LIGHT
-                        #~# ATM ±1 IV highlight: Call IV > Put IV → blue; Put IV > Call IV + 3 → blue
+                        #~# ATM ±2 IV highlight: Call IV > Put IV → blue; Put IV > Call IV + 3 → blue
                         _iv_pair = _strike_iv.get(_strike_int)
                         if _iv_pair:
                             _c_iv, _p_iv = _iv_pair
