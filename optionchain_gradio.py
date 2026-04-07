@@ -74,6 +74,7 @@ try:
     from string import Template
     from paths import (PROJECT_ROOT, HTML_DIR, CSS_STYLES_FILE,
                        INSTRUMENTS_DIR, OPTIONCHAIN_CSV_DIR, CACHE_DIR,
+                       FUTURES_DIR, VIX_DIR,
                        OI_HISTORY_FILE as _OI_HISTORY_PATH, ensure_dirs)
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
@@ -117,6 +118,131 @@ if sys.platform == 'win32':
         pass
 
 _dbg_console = _RichConsole(force_terminal=True)  #~# shared Rich console for debug logging
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#^# NSE DATA DOWNLOAD — check & download prev-day CSVs via Playwright
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _get_last_trading_date() -> _dt.date:
+    """Return the most recent trading date (today if after 4 PM, else yesterday).
+    Skips weekends.  Used to check if prev-day data files exist."""
+    try:
+        now_ist = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=5, minutes=30)))
+    except Exception:
+        now_ist = _dt.datetime.now()
+    d = now_ist.date()
+    t = now_ist.time()
+    # If before market close, we need previous trading day's data
+    if t < _dt.time(16, 0):
+        d -= _dt.timedelta(days=1)
+    # Skip weekends
+    while d.weekday() >= 5:
+        d -= _dt.timedelta(days=1)
+    return d
+
+
+def _check_nse_data_status() -> dict:
+    """Check which NSE data files exist for the last trading date.
+    Returns dict with keys: date, option_chain, futures, vix (bool each)."""
+    data_date = _get_last_trading_date()
+    date_str = data_date.isoformat()
+
+    # Option chain: pattern is {date}_exp_*.csv
+    oc_files = list(OPTIONCHAIN_CSV_DIR.glob(f"{date_str}_exp_*.csv"))
+    # Futures: NIFTY_FUTURE_{date}.csv
+    fut_file = FUTURES_DIR / f"NIFTY_FUTURE_{date_str}.csv"
+    # VIX: indiavix_{date}.csv
+    vix_file = VIX_DIR / f"indiavix_{date_str}.csv"
+
+    return {
+        'date': date_str,
+        'option_chain': len(oc_files) > 0,
+        'futures': fut_file.exists(),
+        'vix': vix_file.exists(),
+    }
+
+
+def _nse_data_status_html() -> str:
+    """Return styled HTML showing data file status."""
+    st = _check_nse_data_status()
+    all_ok = st['option_chain'] and st['futures'] and st['vix']
+
+    def _badge(ok: bool, label: str) -> str:
+        if ok:
+            return (f'<span style="background:#1b5e20;color:#a5d6a7;padding:2px 8px;'
+                    f'border-radius:4px;font-size:12px;margin:0 3px;">'
+                    f'&#10003; {label}</span>')
+        return (f'<span style="background:#b71c1c;color:#ef9a9a;padding:2px 8px;'
+                f'border-radius:4px;font-size:12px;margin:0 3px;">'
+                f'&#10007; {label}</span>')
+
+    status_icon = '&#10003;' if all_ok else '&#9888;'
+    status_color = '#a5d6a7' if all_ok else '#ffcc02'
+    status_text = 'All Data Available' if all_ok else 'Missing Data'
+
+    return (
+        f'<div style="display:flex;align-items:center;gap:8px;padding:6px 12px;'
+        f'background:#1a1a2e;border:1px solid #2a3140;border-radius:8px;'
+        f'font-family:monospace;">'
+        f'<span style="color:{status_color};font-weight:bold;font-size:13px;">'
+        f'{status_icon} {status_text}</span>'
+        f'<span style="color:#888;font-size:11px;">({st["date"]})</span>'
+        f'{_badge(st["option_chain"], "Option Chain")}'
+        f'{_badge(st["futures"], "Futures")}'
+        f'{_badge(st["vix"], "VIX")}'
+        f'</div>'
+    )
+
+
+_nse_download_running = False  #~# prevent concurrent downloads
+
+
+def _run_nse_download():
+    """Execute the NSE data download script in a subprocess.
+    Returns status HTML on completion."""
+    global _nse_download_running
+    if _nse_download_running:
+        return _nse_data_status_html()
+
+    _nse_download_running = True
+    try:
+        import subprocess
+        _tui.log_info("NSE data download started...")
+        script = str(PROJECT_ROOT / 'scripts' / 'download_nse_data.py')
+        result = subprocess.run(
+            [sys.executable, script],
+            capture_output=True, text=True, timeout=300,
+            cwd=str(PROJECT_ROOT),
+            encoding='utf-8', errors='replace',
+        )
+        if result.returncode == 0:
+            _tui.log_info("NSE data download completed successfully")
+        else:
+            _tui.log_error(f"NSE data download failed (exit {result.returncode})")
+            if result.stderr:
+                _tui.log_error(result.stderr[:500])
+    except subprocess.TimeoutExpired:
+        _tui.log_error("NSE data download timed out (5 min)")
+    except Exception as e:
+        _tui.log_error(f"NSE data download error: {e}")
+    finally:
+        _nse_download_running = False
+
+    return _nse_data_status_html()
+
+
+def _should_auto_download() -> bool:
+    """Return True if it's after 9 PM IST and data is missing."""
+    try:
+        now_ist = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=5, minutes=30)))
+    except Exception:
+        now_ist = _dt.datetime.now()
+    if now_ist.hour < 21:
+        return False
+    st = _check_nse_data_status()
+    return not (st['option_chain'] and st['futures'] and st['vix'])
+
 
 _MOCK_MODE: bool = False          #~# toggled by startup prompt or Gradio checkbox
 _MOCK_PREV_SNAP: dict = {}        #~# cached so it stays stable across 3s refresh ticks
@@ -3443,15 +3569,7 @@ def refresh_data(underlying, expiry_idx, num_strikes):
         underlying = str(underlying)
         data = fetch_all_data(underlying, int(expiry_idx), int(num_strikes))
         if data['error']:
-            err = _render('error', message=data['error'])
-            #~# On error: preserve existing history tabs
-            _oc_hist = _get_oc_history_htmls()
-            _oi_dist_hist = _get_oi_dist_history_htmls()
-            return (err, "", "", _last_valid_oi_charts,
-                    *_oi_dist_hist, _get_oi_dist_ts_html(),
-                    _last_valid_oc_html,
-                    *_oc_hist, _get_oc_ts_html(),
-                    _last_valid_futures_html, None, None, None, None, "", None, None, None, None, None)
+            return _error_preserve(_render('error', message=data['error']))
         _cached_underlying = underlying
 
         header_html = _header(data)
@@ -3506,15 +3624,7 @@ def refresh_data(underlying, expiry_idx, num_strikes):
             oi_candle_ph,
         )
     except Exception as e:
-        err = _render('error', message=str(e))
-        #~# On error: preserve existing history tabs
-        _oc_hist = _get_oc_history_htmls()
-        _oi_dist_hist = _get_oi_dist_history_htmls()
-        return (err, "", "", _last_valid_oi_charts,
-                *_oi_dist_hist, _get_oi_dist_ts_html(),
-                _last_valid_oc_html,
-                *_oc_hist, _get_oc_ts_html(),
-                _last_valid_futures_html, None, None, None, None, "", None, None, None, None, None)
+        return _error_preserve(_render('error', message=str(e)))
 
 
 _refresh_counter = 0  # track refresh cycles
@@ -3659,6 +3769,30 @@ def _history_noop():
     return oi, oc
 
 
+def _error_preserve(err_html: str):
+    """Return a full output tuple that shows the error in the header but
+    preserves ALL other panels (OI history, charts, TF table, etc.)
+    by using gr.update() — nothing goes blank or gets wiped.
+    """
+    _noop = gr.update()
+    _oi_noop, _oc_noop = _history_noop()
+    return (
+        err_html,  # header — show error
+        _noop,     # oi_history_out — keep last
+        _noop,     # tech_analysis_out — keep last
+        _noop,     # oi_charts_out — keep last
+        *_oi_noop, # oi_dist history tabs + ts — keep last
+        _noop,     # oc_out — keep last
+        *_oc_noop, # oc history tabs + ts — keep last
+        _noop,     # futures_out — keep last
+        _noop, _noop, _noop, _noop,  # 4 straddle charts — keep last
+        _noop,     # tf_indicators_out — keep last
+        _noop, _noop, _noop,  # 3 ATM triple charts — keep last
+        _noop,     # ema_candle_out — keep last
+        _noop,     # oi_candle_out — keep last
+    )
+
+
 def smart_refresh(underlying, expiry_idx, num_strikes):
     """!
     Three-tier refresh — maximally fast live, zero waste, lazy history.
@@ -3697,14 +3831,7 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
 
             if data['error']:
                 _tui.log_error(f"#{cycle} Option chain error: {data['error']}")
-                err = _render('error', message=data['error'])
-                #~# On error: keep live error, preserve history tabs (don't wipe)
-                _oi_noop, _oc_noop = _history_noop()
-                return (err, "", "", _last_valid_oi_charts,
-                        *_oi_noop,
-                        _last_valid_oc_html,
-                        *_oc_noop,
-                        _last_valid_futures_html, None, None, None, None, "", None, None, None, None, None)
+                return _error_preserve(_render('error', message=data['error']))
 
             # ── TIER 0: Fast fingerprint — skip ALL if data truly unchanged ──
             _odf = data.get('option_df')
@@ -3827,14 +3954,7 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
             market_status=_market_status_str(),
             error=str(e),
         )
-        err = _render('error', message=str(e))
-        #~# On error: show error in header, preserve history tabs (don't wipe on transient errors)
-        _oi_noop, _oc_noop = _history_noop()
-        return (err, "", "", _last_valid_oi_charts,
-                *_oi_noop,
-                _last_valid_oc_html,
-                *_oc_noop,
-                _last_valid_futures_html, None, None, None, None, "", None, None, None, None, None)
+        return _error_preserve(_render('error', message=str(e)))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -4012,6 +4132,16 @@ with gr.Blocks(title="NIFTY Option Chain Live") as demo:
             interactive=True,
             info="Simulate prev-day OI for 📊+📈 panel when market is closed",
         )
+    #^# NSE Data Download — right-aligned row with status + download button
+    with gr.Row(equal_height=True):
+        nse_status_out = gr.HTML(value=_nse_data_status_html(), scale=4)
+        nse_dl_btn = gr.Button(
+            "📥 Download NSE Data",
+            variant="secondary", scale=1,
+            elem_id="nse-download-btn",
+        )
+    nse_dl_btn.click(fn=_run_nse_download, inputs=[], outputs=[nse_status_out], show_progress="minimal")
+
     header_out = gr.HTML(value=_INITIAL_LOADER)
     oi_history_out = gr.HTML()
     tech_analysis_out = gr.HTML()
@@ -4079,6 +4209,11 @@ with gr.Blocks(title="NIFTY Option Chain Live") as demo:
     
     #~# Initial load — replaces the loader with real data (hidden progress so no extra fade)
     demo.load(fn=refresh_data, inputs=ins, outputs=outs, show_progress="hidden")
+
+    #~# Auto-download: after 9 PM IST, if data is missing, trigger download on page load
+    if _should_auto_download():
+        _tui.log_info("After 9 PM IST with missing data — auto-triggering NSE download")
+        demo.load(fn=_run_nse_download, inputs=[], outputs=[nse_status_out], show_progress="minimal")
 
     #~# Silent auto-refresh every 3 seconds — NO loading fade/spinner/opacity change
     #~# show_progress="hidden" ensures zero visual disruption during interval updates

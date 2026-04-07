@@ -830,20 +830,25 @@ def load_previous_futures_data(underlying: str = "NIFTY") -> list:
         return []
 
     try:
-        df = pd.read_csv(csv_file, encoding='utf-8-sig')
-        df.columns = [c.strip().replace('\n', ' ').replace('\r', '') for c in df.columns]
+        #~# CSV has a malformed first line ("INSTRUMENT TYPE\r\nIndex Futures"...)
+        #~# that pandas treats as header, swallowing the near-month row.
+        #~# Use header=None to read all rows as data, then skip non-data rows.
+        df = pd.read_csv(csv_file, encoding='utf-8-sig', header=None)
 
         result = []
         for _, row in df.iterrows():
+            if len(row) < 14:
+                continue
             expiry_raw = str(row.iloc[2]).strip()
-            ltp = parse_indian_number(row.iloc[5])
-            oi = parse_indian_number(row.iloc[13]) if len(df.columns) > 13 else 0
-
+            #~# Skip rows where col[2] isn't a valid expiry date (e.g. header fragments)
             try:
                 expiry_date = datetime.datetime.strptime(expiry_raw, "%d-%b-%Y").date()
                 expiry_key = expiry_date.strftime("%Y-%m-%d")
             except Exception:
-                expiry_key = expiry_raw
+                continue  # not a data row
+
+            ltp = parse_indian_number(row.iloc[5])
+            oi = parse_indian_number(row.iloc[13])
 
             result.append({
                 'expiry': expiry_raw,
@@ -1479,11 +1484,11 @@ def fetch_all_data(underlying: str = "NIFTY", expiry_index: int = 0,
         # * Previous OI snapshot (for Change in OI chart comparison)
         result['prev_oi_snapshot'] = get_previous_oi_snapshot(underlying)
 
-        # * Futures build-up data
+        # * Futures build-up data — fallback to last valid cache on exception
         try:
             result['futures_buildup'] = get_futures_buildup_data(underlying)
         except Exception:
-            result['futures_buildup'] = []
+            result['futures_buildup'] = _last_valid_futures_buildup or []
 
         # * Day open price — always use ensure_day_open_synced() which fetches
         # * from OHLC API and only falls back to spot when OHLC is unavailable.
