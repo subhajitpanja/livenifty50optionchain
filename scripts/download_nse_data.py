@@ -107,7 +107,11 @@ def extract_data_date_from_text(text: str) -> datetime.date | None:
     m = re.search(r'As\s+on\s+(\d{1,2}-\w{3}-\d{4})', text, re.IGNORECASE)
     if m:
         return parse_nse_date(m.group(1))
-    # Pattern: "from DD-MM-YYYY"
+    # Pattern: "from DD-MM-YYYY to DD-MM-YYYY" — prefer "to" (end) date
+    m = re.search(r'to\s+(\d{1,2}-\d{1,2}-\d{4})', text, re.IGNORECASE)
+    if m:
+        return parse_nse_date(m.group(1))
+    # Fallback: "from DD-MM-YYYY" alone
     m = re.search(r'from\s+(\d{1,2}-\d{1,2}-\d{4})', text, re.IGNORECASE)
     if m:
         return parse_nse_date(m.group(1))
@@ -433,26 +437,29 @@ def download_vix(page) -> bool:
         # Use JavaScript to find ANY visible table row with a date-like
         # first cell, since NSE uses various table IDs.
         vix_check = page.evaluate("""() => {
-            // Try all tables on the page
+            // Try all tables on the page — return the LAST date row
+            // (the latest trading day) rather than the first.
             const tables = document.querySelectorAll('table');
+            let lastDate = '';
+            let totalRows = 0;
             for (const table of tables) {
                 const rows = table.querySelectorAll('tbody tr');
                 for (const row of rows) {
                     const cells = row.querySelectorAll('td');
                     if (cells.length >= 4) {
                         const firstCell = cells[0].textContent.trim();
-                        // Check if first cell looks like a date (contains month abbr or digits)
                         if (/\\d{2}-.{3,}-\\d{4}/.test(firstCell) || /\\d{2}-[A-Za-z]{3}-\\d{4}/.test(firstCell)) {
-                            return {
-                                hasData: true,
-                                dateText: firstCell,
-                                rowCount: rows.length
-                            };
+                            lastDate = firstCell;
+                            totalRows++;
                         }
                     }
                 }
             }
-            return { hasData: false, dateText: '', rowCount: 0 };
+            return {
+                hasData: totalRows > 0,
+                dateText: lastDate,
+                rowCount: totalRows
+            };
         }""")
 
         daily_has_data = vix_check.get('hasData', False)
@@ -475,6 +482,8 @@ def download_vix(page) -> bool:
 
             vix_check = page.evaluate("""() => {
                 const tables = document.querySelectorAll('table');
+                let lastDate = '';
+                let totalRows = 0;
                 for (const table of tables) {
                     const rows = table.querySelectorAll('tbody tr');
                     for (const row of rows) {
@@ -482,16 +491,17 @@ def download_vix(page) -> bool:
                         if (cells.length >= 4) {
                             const firstCell = cells[0].textContent.trim();
                             if (/\\d{2}-.{3,}-\\d{4}/.test(firstCell) || /\\d{2}-[A-Za-z]{3}-\\d{4}/.test(firstCell)) {
-                                return {
-                                    hasData: true,
-                                    dateText: firstCell,
-                                    rowCount: rows.length
-                                };
+                                lastDate = firstCell;
+                                totalRows++;
                             }
                         }
                     }
                 }
-                return { hasData: false, dateText: '', rowCount: 0 };
+                return {
+                    hasData: totalRows > 0,
+                    dateText: lastDate,
+                    rowCount: totalRows
+                };
             }""")
 
             if vix_check.get('hasData'):
@@ -536,25 +546,37 @@ def download_vix(page) -> bool:
         with open(temp_path, "r", encoding="utf-8") as f:
             raw = f.read()
 
-        # For daily data: keep only the matching date row
+        # Always keep only the latest date row from the CSV.
+        # The downloaded file may contain multiple rows (especially
+        # from the 1W tab), but consumers expect header + 1 row.
         lines = raw.split("\n")
-        if daily_has_data and len(lines) > 2:
-            header = lines[0]
-            date_upper = data_date.strftime("%d-%b-%Y").upper()
-            date_variants = [
-                date_upper,
-                data_date.strftime("%d-%b-%Y"),
-                data_date.strftime("%d-%B-%Y").upper(),
-            ]
-            matching = [header]
-            for line in lines[1:]:
-                if any(v in line.upper() for v in date_variants):
-                    matching.append(line)
-                    break
-            if len(matching) > 1:
-                final_content = "\n".join(matching) + "\n"
-            else:
-                final_content = raw
+        header = lines[0] if lines else ""
+        data_lines = [l for l in lines[1:] if l.strip()]
+
+        if data_lines:
+            # Parse dates from each row and pick the latest
+            best_line = data_lines[-1]  # fallback: last row
+            best_date = None
+            for line in data_lines:
+                first_field = line.split(",")[0].strip().strip('"')
+                row_date = parse_nse_date(first_field)
+                if row_date and (best_date is None or row_date > best_date):
+                    best_date = row_date
+                    best_line = line
+
+            # Update data_date if we found a newer date in the CSV
+            if best_date and best_date != data_date:
+                console.print(f"  [yellow]Adjusting date from {data_date} → {best_date}[/yellow]")
+                data_date = best_date
+                filename = f"indiavix_{data_date.isoformat()}.csv"
+                output_path = VIX_DIR / filename
+                # Re-check idempotent
+                if output_path.exists():
+                    console.print(f"  [green]✅ Already exists:[/green] {filename}")
+                    temp_path.unlink(missing_ok=True)
+                    return True
+
+            final_content = header + "\n" + best_line + "\n"
         else:
             final_content = raw
 

@@ -4217,9 +4217,14 @@ with gr.Blocks(title="NIFTY Option Chain Live") as demo:
     demo.load(fn=refresh_data, inputs=ins, outputs=outs, show_progress="hidden")
 
     #~# Auto-download: after 9 PM IST, if data is missing, trigger download on page load
-    if _should_auto_download():
-        _tui.log_info("After 9 PM IST with missing data — auto-triggering NSE download")
-        demo.load(fn=_run_nse_download, inputs=[], outputs=[nse_status_out], show_progress="minimal")
+    #~# Always register the function to keep fn_index stable across restarts;
+    #~# the callback no-ops when data is already present.
+    def _auto_download_if_needed():
+        if _should_auto_download():
+            _tui.log_info("After 9 PM IST with missing data — auto-triggering NSE download")
+            return _run_nse_download()
+        return _nse_data_status_html()
+    demo.load(fn=_auto_download_if_needed, inputs=[], outputs=[nse_status_out], show_progress="minimal")
 
     #~# Silent auto-refresh every 3 seconds — NO loading fade/spinner/opacity change
     #~# show_progress="hidden" ensures zero visual disruption during interval updates
