@@ -798,23 +798,39 @@ def _load_oi_history() -> list:
                                     or format_lakh(float(entry.get('bearish_oi', 0) or 0)) != format_lakh(float(last.get('bearish_oi', 0) or 0))):
                                 cleaned.append(entry)
                     return cleaned
-    except Exception:
-        pass
+    except Exception as e:
+        _tui.log_error(f"OI Hist LOAD error: {e}")
     return []
 
 
 def _update_oi_history(bullish_oi: float, bearish_oi: float, timestamp: str):
-    """* Update OI history, only if values changed from last entry"""
+    """* Update OI history, only if values changed meaningfully from last entry.
+    Requires ≥2% ratio shift OR ≥5% absolute change to avoid oscillation noise."""
     try:
         history = _load_oi_history()
         bull_disp = format_lakh(float(bullish_oi))
         bear_disp = format_lakh(float(bearish_oi))
         should_add = True
+        skip_reason = ''
         if history:
             last = history[-1]
-            if (format_lakh(float(last.get('bullish_oi', 0) or 0)) == bull_disp
-                    and format_lakh(float(last.get('bearish_oi', 0) or 0)) == bear_disp):
+            last_bull = float(last.get('bullish_oi', 0) or 0)
+            last_bear = float(last.get('bearish_oi', 0) or 0)
+            last_bull_disp = format_lakh(last_bull)
+            last_bear_disp = format_lakh(last_bear)
+            #~# Skip if display values are identical
+            if last_bull_disp == bull_disp and last_bear_disp == bear_disp:
                 should_add = False
+                skip_reason = f'unchanged ({bull_disp} / {bear_disp})'
+            else:
+                #~# Anti-oscillation: require ≥2% ratio shift to record
+                last_tot = last_bull + last_bear
+                cur_tot = float(bullish_oi) + float(bearish_oi)
+                last_pct = (last_bull / last_tot * 100) if last_tot > 0 else 50
+                cur_pct = (float(bullish_oi) / cur_tot * 100) if cur_tot > 0 else 50
+                if abs(cur_pct - last_pct) < 2.0:
+                    should_add = False
+                    skip_reason = f'ratio shift <2% ({cur_pct:.1f}% vs {last_pct:.1f}%)'
         if should_add and (bullish_oi > 0 or bearish_oi > 0):
             history.append(
                 {'timestamp': timestamp, 'bullish_oi': bullish_oi, 'bearish_oi': bearish_oi})
@@ -822,8 +838,13 @@ def _update_oi_history(bullish_oi: float, bearish_oi: float, timestamp: str):
             OI_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
             with open(OI_HISTORY_FILE, 'w') as f:
                 json.dump(history, f, indent=2)
-    except Exception:
-        pass
+            _tui.log_info(f"OI Hist + Bull:{bull_disp} Bear:{bear_disp} [{timestamp.split()[-1] if ' ' in timestamp else timestamp}]")
+        elif should_add:
+            _tui.log_debug(f"OI Hist SKIP: both zero")
+        else:
+            _tui.log_debug(f"OI Hist SKIP: {skip_reason}")
+    except Exception as e:
+        _tui.log_error(f"OI Hist ERROR: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -3152,11 +3173,23 @@ def _build_oi_candlestick_panel(data: dict, underlying: str = 'NIFTY'):
         call_chg = []
         put_chg = []
 
+        #~# Compute candlestick price range to filter OI strikes to a meaningful window
+        _candle_low  = float(today_df['low'].astype(float).min())
+        _candle_high = float(today_df['high'].astype(float).max())
+        _step = _get_strike_step(underlying)
+        #~# Centre on ATM, extend enough to cover candle range + 10 strikes each side
+        _oi_half = max(10 * _step, (_candle_high - _candle_low) * 1.2)
+        _oi_y_lo = (atm_int or _candle_low) - _oi_half
+        _oi_y_hi = (atm_int or _candle_high) + _oi_half
+
         if not option_df.empty:
             for _, row in option_df.iterrows():
                 try:
                     s = int(float(row.get('Strike', 0)))
                 except (ValueError, TypeError):
+                    continue
+                #~# Filter strikes to within the visible y-axis range
+                if s < _oi_y_lo or s > _oi_y_hi:
                     continue
                 c_curr = float(row.get('C_OI', 0) or 0)
                 p_curr = float(row.get('P_OI', 0) or 0)
@@ -3488,8 +3521,12 @@ def _build_oi_candlestick_panel(data: dict, underlying: str = 'NIFTY'):
                          title_text='\u2190 Put OI (green) + Call OI (red)',
                          title_font=dict(size=10, color=MUTED_LIGHT),
                          tickformat='~s', autorange='reversed', row=1, col=2)
+        #~# Explicit y-range: union of candle range + filtered OI strikes, with padding
+        _y_lo = min(_candle_low, min(strikes) if strikes else _candle_low) - _step
+        _y_hi = max(_candle_high, max(strikes) if strikes else _candle_high) + _step
         fig.update_yaxes(**_ax, tickformat=',.0f', zeroline=False,
-                         dtick=50,
+                         dtick=_step,
+                         range=[_y_lo, _y_hi],
                          title_text=f'{underlying} (\u20b9)',
                          title_font=dict(size=11), row=1, col=1)
 
@@ -3582,6 +3619,14 @@ def refresh_data(underlying, expiry_idx, num_strikes):
         #~# Clear flag so cached data won't re-trigger OI history on fast refreshes
         data['_update_oi'] = False
         _cached_full_data['_update_oi'] = False
+
+        #~# Log OI buildup summary on full refresh
+        _m = data.get('metrics', {})
+        _bull = _m.get('bullish_oi', 0)
+        _bear = _m.get('bearish_oi', 0)
+        _tot_bu = _bull + _bear
+        _bull_pct = (_bull / _tot_bu * 100) if _tot_bu > 0 else 0
+        _tui.log_info(f"FULL refresh Bull:{format_lakh(_bull)}({_bull_pct:.0f}%) Bear:{format_lakh(_bear)}")
 
         #~# Charts: return cached/placeholder immediately, build in background
         s_fig0_15, s_fig1_15, s_fig0_5, s_fig1_5 = _get_cached_or_placeholder_charts()
@@ -3845,10 +3890,47 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
             _total_p = int(_odf['P_OI'].sum()) if _odf is not None and 'P_OI' in _odf.columns else 0
             _fp = f"{data.get('spot_price', 0):.2f}|{data.get('vix_current', 0):.2f}|{data.get('fut_price', 0):.2f}|{_total_c}|{_total_p}"
             if _fp == _last_data_fingerprint:
-                #~# Data unchanged — send nothing to browser (zero bytes over WebSocket)
+                #~# Data unchanged — but check if background-built chart figures need delivery
+                s_fig0_15, s_fig1_15, s_fig0_5, s_fig1_5 = _get_cached_or_placeholder_charts()
+                atm_up_ph, atm_atm_ph, atm_down_ph, ema_ph, oi_candle_ph = _get_cached_or_placeholder_atm_row(underlying)
+                _chart_pairs = [
+                    ('s15_0', s_fig0_15), ('s15_1', s_fig1_15),
+                    ('s5_0', s_fig0_5), ('s5_1', s_fig1_5),
+                    ('atm_up', atm_up_ph), ('atm_atm', atm_atm_ph),
+                    ('atm_down', atm_down_ph), ('ema', ema_ph),
+                    ('oi_candle', oi_candle_ph),
+                ]
+                _pending = any(_last_sent_fig_ids.get(k) != id(f) for k, f in _chart_pairs)
+                if not _pending:
+                    #~# Truly nothing changed — zero bytes to browser
+                    dt_total = _time.time() - t0
+                    _tui.log_info(f"#{cycle} SKIP (unchanged) OC:{dt_oc:.2f}s Total:{dt_total:.2f}s")
+                    return tuple(gr.update() for _ in range(_OUTPUT_COUNT))
+                #~# Data unchanged but chart figures updated in background — send only charts
                 dt_total = _time.time() - t0
-                _tui.log_info(f"#{cycle} SKIP (unchanged) OC:{dt_oc:.2f}s Total:{dt_total:.2f}s")
-                return tuple(gr.update() for _ in range(_OUTPUT_COUNT))
+                _tui.log_info(f"#{cycle} CHARTS-ONLY (data unchanged, figs pending) OC:{dt_oc:.2f}s Total:{dt_total:.2f}s")
+                _noop = gr.update()
+                _oi_noop, _oc_noop = _history_noop()
+                return (
+                    _noop,     # header
+                    _noop,     # oi_history
+                    _noop,     # tech_analysis
+                    _noop,     # oi_charts
+                    *_oi_noop, # oi_dist history tabs + ts
+                    _noop,     # oc_combined
+                    *_oc_noop, # oc history tabs + ts
+                    _noop,     # futures
+                    _fig_or_skip('s15_0', s_fig0_15),
+                    _fig_or_skip('s15_1', s_fig1_15),
+                    _fig_or_skip('s5_0', s_fig0_5),
+                    _fig_or_skip('s5_1', s_fig1_5),
+                    _noop,     # tf_indicators
+                    _fig_or_skip('atm_up', atm_up_ph),
+                    _fig_or_skip('atm_atm', atm_atm_ph),
+                    _fig_or_skip('atm_down', atm_down_ph),
+                    _fig_or_skip('ema', ema_ph),
+                    _fig_or_skip('oi_candle', oi_candle_ph),
+                )
             _last_data_fingerprint = _fp
 
             data['_update_oi'] = True
@@ -3880,6 +3962,19 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
         header_html = _header(data)
         data['_update_oi'] = False
         _cached_full_data['_update_oi'] = False
+
+        #~# Log OI buildup summary for terminal visibility
+        _m = data.get('metrics', {})
+        _bull = _m.get('bullish_oi', 0)
+        _bear = _m.get('bearish_oi', 0)
+        _tot_bu = _bull + _bear
+        _bull_pct = (_bull / _tot_bu * 100) if _tot_bu > 0 else 0
+        _neutral_c = _m.get('call_neutral', 0)
+        _neutral_p = _m.get('put_neutral', 0)
+        _tui.log_info(
+            f"#{cycle} Bull:{format_lakh(_bull)}({_bull_pct:.0f}%) Bear:{format_lakh(_bear)}"
+            f" Neutral:C={format_lakh(_neutral_c)}/P={format_lakh(_neutral_p)}"
+        )
 
         #^# TUI Dashboard — enhanced terminal display
         dt_total = _time.time() - t0
@@ -4097,6 +4192,40 @@ window.ocSortCol = ocSortCol;
     setInterval(updateAllTimestamps, 2000);
 })();
 
+// ── Tab visibility: force refresh when user returns to this tab ──────
+(function() {
+    var _wasHidden = false;
+    var _hiddenAt = 0;
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+            _wasHidden = true;
+            _hiddenAt = Date.now();
+        } else if (_wasHidden) {
+            _wasHidden = false;
+            var awayMs = Date.now() - _hiddenAt;
+            console.log('[OC] Tab visible after ' + (awayMs/1000).toFixed(0) + 's away');
+            // Trigger Gradio refresh button click to get fresh data immediately
+            var btn = document.querySelector('#oc-refresh-btn');
+            if (btn) { btn.click(); }
+            updateAllTimestamps();
+            // Retry after 1.5s in case Gradio WS was still reconnecting
+            setTimeout(function() {
+                if (btn) { btn.click(); }
+            }, 1500);
+            // If away >30s, Gradio WS may have disconnected — force reload
+            if (awayMs > 60000) {
+                console.log('[OC] Away >60s — reloading page for fresh WS connection');
+                setTimeout(function() { window.location.reload(); }, 2000);
+            }
+        }
+    });
+    // Also listen for window focus (catches Alt-Tab and taskbar clicks)
+    window.addEventListener('focus', function() {
+        var btn = document.querySelector('#oc-refresh-btn');
+        if (btn) { btn.click(); }
+    });
+})();
+
 // ── Browser health monitor — auto-reload before Chrome OOMs ───────────
 (function() {
     var _startTime = Date.now();
@@ -4130,7 +4259,7 @@ with gr.Blocks(title="NIFTY Option Chain Live") as demo:
         expiry_idx = gr.Number(value=0, label="Expiry Index", scale=1)
         strikes_sl = gr.Slider(5, 25, value=15, step=1,
                                label="Strikes ± ATM", scale=1)
-        refresh_btn = gr.Button("🔄 Refresh", variant="primary", scale=1)
+        refresh_btn = gr.Button("🔄 Refresh", variant="primary", scale=1, elem_id="oc-refresh-btn")
         mock_chk = gr.Checkbox(
             label="🧪 Weekend Mock Mode",
             value=_MOCK_MODE,

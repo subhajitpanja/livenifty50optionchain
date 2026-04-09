@@ -988,14 +988,16 @@ def get_futures_buildup_data(underlying: str = "NIFTY") -> list:
 # ═════════════════════════════════════════════════════════════════════════════
 def load_previous_day_data(underlying: str = "NIFTY") -> Dict[float, dict]:
     prev_data = {}
-    csv_files = list(OPTIONCHAIN_CSV_DIR.glob("????-??-??.csv"))
+    # Match both old (YYYY-MM-DD.csv) and new (YYYY-MM-DD_exp_*.csv) filenames
+    csv_files = list(OPTIONCHAIN_CSV_DIR.glob("????-??-??*.csv"))
     csv_file = None
 
     if csv_files:
-        csv_files_sorted = sorted(csv_files, key=lambda x: x.stem, reverse=True)
+        # Sort by date prefix (first 10 chars of stem = YYYY-MM-DD)
+        csv_files_sorted = sorted(csv_files, key=lambda x: x.stem[:10], reverse=True)
         today_str = datetime.date.today().strftime('%Y-%m-%d')
         for f in csv_files_sorted:
-            if f.stem != today_str:
+            if f.stem[:10] != today_str:
                 csv_file = f
                 break
         if csv_file is None and csv_files_sorted:
@@ -1003,7 +1005,16 @@ def load_previous_day_data(underlying: str = "NIFTY") -> Dict[float, dict]:
 
     if csv_file and csv_file.exists():
         try:
-            df = pd.read_csv(csv_file, skiprows=1, header=0)
+            # Detect header rows: new format has Date/Expiry rows before CALLS,,PUTS
+            with open(csv_file, 'r', encoding='utf-8') as fh:
+                skip = 0
+                for line in fh:
+                    stripped = line.strip().upper()
+                    if stripped.startswith('CALLS') or stripped.startswith(',OI'):
+                        break
+                    skip += 1
+            # skip = number of lines before "CALLS,,PUTS"; +1 to also skip that row
+            df = pd.read_csv(csv_file, skiprows=skip + 1, header=0)
             for _, row in df.iterrows():
                 strike = parse_indian_number(row.get('STRIKE', None))
                 if strike > 0:
@@ -1052,10 +1063,16 @@ def parse_option_chain(oc_data: dict, spot_price: float, underlying: str,
             call_ltp = ce.get('last_price', 0) or 0
             put_ltp = pe.get('last_price', 0) or 0
 
-            # Previous day data
-            prev = prev_day.get(strike, {})
-            call_prev_close = prev.get('call_ltp', 0) or 0
-            put_prev_close = prev.get('put_ltp', 0) or 0
+            # Previous close — prefer API's own previous_close_price (accurate),
+            # fall back to CSV prev_day data only if API field is missing/zero
+            call_prev_close = ce.get('previous_close_price', 0) or 0
+            put_prev_close = pe.get('previous_close_price', 0) or 0
+            if call_prev_close == 0 or put_prev_close == 0:
+                prev = prev_day.get(strike, {})
+                if call_prev_close == 0:
+                    call_prev_close = prev.get('call_ltp', 0) or 0
+                if put_prev_close == 0:
+                    put_prev_close = prev.get('put_ltp', 0) or 0
 
             # OI (in contracts from API)
             call_oi_contracts = ce.get('oi', 0) or 0
