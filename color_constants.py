@@ -84,7 +84,7 @@ BORDER_COLOR = '#2a3140'  # plotly legend border
 RSI_OVERBOUGHT_LINE = 'rgba(50,220,50,0.70)'     # PUT_BAR 70% — RSI 70 line
 RSI_NEUTRAL_LINE = 'rgba(150,150,150,0.35)'       # Gray 35% — RSI 50 line
 RSI_OVERSOLD_LINE = 'rgba(255,0,0,0.70)'        # CALL_BAR 70% — RSI 30 line
-RSI_OVERBOUGHT_ZONE = 'rgba(50,220,50,0.07)'     # PUT_BAR 7% — RSI 70-100 fill
+RSI_OVERBOUGHT_ZONE = 'rgba(50,220,50,0.07)'      # PUT_BAR 7% — RSI 70-100 fill
 RSI_OVERSOLD_ZONE = 'rgba(255,0,0,0.07)'        # CALL_BAR 7% — RSI 0-30 fill
 
 #~# Annotation backgrounds (badges, tooltips)

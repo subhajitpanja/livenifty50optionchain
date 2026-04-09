@@ -781,8 +781,18 @@ def _render(_tpl_name: str, **kwargs) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 OI_HISTORY_FILE = _OI_HISTORY_PATH
 
+#~# In-memory caches — eliminate disk I/O on every 3s tick
+_oi_history_mem: list = []          # authoritative in-memory list (max 20)
+_oi_history_mem_loaded: bool = False  # True after first disk load
+_oi_history_html_cache: str = ''    # cached rendered HTML
+_oi_history_html_len: int = 0       # len(_oi_history_mem) when HTML was built
+_oi_history_html_last_ts: str = ''  # timestamp of last entry when HTML was built
+
 
 def _load_oi_history() -> list:
+    global _oi_history_mem, _oi_history_mem_loaded
+    if _oi_history_mem_loaded:
+        return _oi_history_mem
     try:
         if OI_HISTORY_FILE.exists():
             with open(OI_HISTORY_FILE, 'r') as f:
@@ -797,15 +807,18 @@ def _load_oi_history() -> list:
                             if (format_lakh(float(entry.get('bullish_oi', 0) or 0)) != format_lakh(float(last.get('bullish_oi', 0) or 0))
                                     or format_lakh(float(entry.get('bearish_oi', 0) or 0)) != format_lakh(float(last.get('bearish_oi', 0) or 0))):
                                 cleaned.append(entry)
-                    return cleaned
+                    _oi_history_mem = cleaned[-20:]
     except Exception as e:
         _tui.log_error(f"OI Hist LOAD error: {e}")
-    return []
+    _oi_history_mem_loaded = True
+    return _oi_history_mem
 
 
 def _update_oi_history(bullish_oi: float, bearish_oi: float, timestamp: str):
     """* Update OI history, only if values changed meaningfully from last entry.
-    Requires ≥2% ratio shift OR ≥5% absolute change to avoid oscillation noise."""
+    Requires ≥0.5% ratio shift OR display-value change to record.
+    Force-records every 15s even if unchanged, so the panel stays real-time."""
+    global _oi_history_mem
     try:
         history = _load_oi_history()
         bull_disp = format_lakh(float(bullish_oi))
@@ -818,26 +831,46 @@ def _update_oi_history(bullish_oi: float, bearish_oi: float, timestamp: str):
             last_bear = float(last.get('bearish_oi', 0) or 0)
             last_bull_disp = format_lakh(last_bull)
             last_bear_disp = format_lakh(last_bear)
-            #~# Skip if display values are identical
-            if last_bull_disp == bull_disp and last_bear_disp == bear_disp:
+
+            #~# Time-based force: always record if last entry is >60s old
+            _force_by_time = False
+            last_ts = last.get('timestamp', '')
+            try:
+                import datetime as _dt
+                _last_dt = _dt.datetime.strptime(last_ts, "%d-%b-%Y %H:%M:%S")
+                _now_dt = _dt.datetime.now()
+                _force_by_time = (_now_dt - _last_dt).total_seconds() > 15
+            except Exception:
+                _force_by_time = True
+
+            if _force_by_time:
+                should_add = True
+                skip_reason = ''
+            #~# Skip if display values are identical (and not forced by time)
+            elif last_bull_disp == bull_disp and last_bear_disp == bear_disp:
                 should_add = False
                 skip_reason = f'unchanged ({bull_disp} / {bear_disp})'
             else:
-                #~# Anti-oscillation: require ≥2% ratio shift to record
+                #~# Anti-oscillation: require ≥0.5% ratio shift to record
                 last_tot = last_bull + last_bear
                 cur_tot = float(bullish_oi) + float(bearish_oi)
                 last_pct = (last_bull / last_tot * 100) if last_tot > 0 else 50
                 cur_pct = (float(bullish_oi) / cur_tot * 100) if cur_tot > 0 else 50
-                if abs(cur_pct - last_pct) < 2.0:
+                if abs(cur_pct - last_pct) < 0.5:
                     should_add = False
-                    skip_reason = f'ratio shift <2% ({cur_pct:.1f}% vs {last_pct:.1f}%)'
+                    skip_reason = f'ratio shift <0.5% ({cur_pct:.1f}% vs {last_pct:.1f}%)'
         if should_add and (bullish_oi > 0 or bearish_oi > 0):
             history.append(
                 {'timestamp': timestamp, 'bullish_oi': bullish_oi, 'bearish_oi': bearish_oi})
             history = history[-20:]
-            OI_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with open(OI_HISTORY_FILE, 'w') as f:
-                json.dump(history, f, indent=2)
+            _oi_history_mem = history
+            #~# Async-safe disk persist — only when entry actually added
+            try:
+                OI_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+                with open(OI_HISTORY_FILE, 'w') as f:
+                    json.dump(history, f)
+            except Exception:
+                pass
             _tui.log_info(f"OI Hist + Bull:{bull_disp} Bear:{bear_disp} [{timestamp.split()[-1] if ' ' in timestamp else timestamp}]")
         elif should_add:
             _tui.log_debug(f"OI Hist SKIP: both zero")
@@ -1044,19 +1077,29 @@ def _header(d: dict) -> str:
 
 
 def _oi_history_panel(d: dict) -> str:
-    """* Separate panel showing last 20 OI history entries."""
+    """* Separate panel showing last 20 OI history entries.
+    Uses cached HTML — only rebuilds when history list actually changed."""
+    global _oi_history_html_cache, _oi_history_html_len, _oi_history_html_last_ts
     m = d['metrics']
     bull, bear = m.get('bullish_oi', 0), m.get('bearish_oi', 0)
     tot = bull + bear
     bp = (bull / tot * 100) if tot > 0 else 50
 
-    #~# Load OI history for last 20 bars
-    oi_history = _load_oi_history()
+    #~# Read from in-memory cache (no disk I/O)
+    oi_history = _oi_history_mem if _oi_history_mem_loaded else _load_oi_history()
     oi_history = [e for e in oi_history if (
         e.get('bullish_oi', 0) or 0) > 0 or (e.get('bearish_oi', 0) or 0) > 0]
     oi_history = oi_history[-20:]
 
-    hist_rows = ''
+    #~# Fast-path: return cached HTML if history unchanged
+    _cur_last_ts = oi_history[-1].get('timestamp', '') if oi_history else ''
+    if (_oi_history_html_cache
+            and len(oi_history) == _oi_history_html_len
+            and _cur_last_ts == _oi_history_html_last_ts):
+        return _oi_history_html_cache
+
+    #~# Rebuild HTML — only when history actually changed
+    parts = []
     for entry in oi_history:
         ts = entry.get('timestamp', '')
         ts_display = ts.split()[-1] if ' ' in ts else ts
@@ -1066,13 +1109,14 @@ def _oi_history_panel(d: dict) -> str:
         b_pct = (bv / row_tot * 100) if row_tot > 0 else 50
         br_pct = 100 - b_pct
 
-        hist_rows += _render('oi_history_row',
+        parts.append(_render('oi_history_row',
                              ts_display=ts_display,
                              bull_val=format_lakh(bv),
                              bear_val=format_lakh(brv),
                              b_pct=f'{b_pct:.0f}',
-                             br_pct=f'{br_pct:.0f}')
+                             br_pct=f'{br_pct:.0f}'))
 
+    hist_rows = ''.join(parts)
     if not hist_rows:
         hist_rows = _render('oi_history_single',
                             bull_val=format_lakh(bull),
@@ -1081,12 +1125,15 @@ def _oi_history_panel(d: dict) -> str:
                             br_pct=f'{100-bp:.0f}')
 
     css = _load_css()
-    return _render('oi_history',
-                   css=css,
-                   hist_rows=hist_rows)
+    _oi_history_html_cache = _render('oi_history',
+                                     css=css,
+                                     hist_rows=hist_rows)
+    _oi_history_html_len = len(oi_history)
+    _oi_history_html_last_ts = _cur_last_ts
+    return _oi_history_html_cache
 
 
-def _oc_table(df: pd.DataFrame, atm: float) -> str:
+def _oc_table(df: pd.DataFrame, atm: float, update_time: str = '') -> str:
     if df.empty:
         return _render('no_data')
 
@@ -1304,7 +1351,8 @@ def _oc_table(df: pd.DataFrame, atm: float) -> str:
     return _render('oc_table',
                    css=css,
                    header_cells=hdr,
-                   body_rows=''.join(parts))
+                   body_rows=''.join(parts),
+                   update_time=update_time or '')
 
 
 def _futures(futures_data: list, ul: str) -> str:
@@ -3635,7 +3683,7 @@ def refresh_data(underlying, expiry_idx, num_strikes):
         atm_up_ph, atm_atm_ph, atm_down_ph, ema_ph, oi_candle_ph = _get_cached_or_placeholder_atm_row(underlying)
         _atm_row_executor.submit(_build_atm_triple_background, data)
         tf_table = _build_tf_indicators_table(underlying, spot_price=data.get('spot_price', 0))
-        _oc_live = _oc_table(data['option_df'], data['atm_strike'])
+        _oc_live = _oc_table(data['option_df'], data['atm_strike'], update_time=data.get('update_time', ''))
         _analytics_live = _analytics(data['metrics'], data)
         _oc_combined = _oc_live + _analytics_live
         _last_valid_oc_html = _oc_combined
@@ -3888,9 +3936,18 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
             _odf = data.get('option_df')
             _total_c = int(_odf['C_OI'].sum()) if _odf is not None and 'C_OI' in _odf.columns else 0
             _total_p = int(_odf['P_OI'].sum()) if _odf is not None and 'P_OI' in _odf.columns else 0
-            _fp = f"{data.get('spot_price', 0):.2f}|{data.get('vix_current', 0):.2f}|{data.get('fut_price', 0):.2f}|{_total_c}|{_total_p}"
+            #~# Include LTP sums so individual strike price changes are detected
+            _ltp_c = round(_odf['C_LTP'].sum(), 2) if _odf is not None and 'C_LTP' in _odf.columns else 0
+            _ltp_p = round(_odf['P_LTP'].sum(), 2) if _odf is not None and 'P_LTP' in _odf.columns else 0
+            _fp = f"{data.get('spot_price', 0):.2f}|{data.get('vix_current', 0):.2f}|{data.get('fut_price', 0):.2f}|{_total_c}|{_total_p}|{_ltp_c}|{_ltp_p}"
             if _fp == _last_data_fingerprint:
-                #~# Data unchanged — but check if background-built chart figures need delivery
+                #~# Data unchanged — still update OI history (force-timer keeps it fresh)
+                _m0 = data.get('metrics', {})
+                import datetime as _dt0
+                _update_oi_history(
+                    _m0.get('bullish_oi', 0), _m0.get('bearish_oi', 0),
+                    _dt0.datetime.now().strftime("%d-%b-%Y %H:%M:%S"))
+                #~# Check if background-built chart figures need delivery
                 s_fig0_15, s_fig1_15, s_fig0_5, s_fig1_5 = _get_cached_or_placeholder_charts()
                 atm_up_ph, atm_atm_ph, atm_down_ph, ema_ph, oi_candle_ph = _get_cached_or_placeholder_atm_row(underlying)
                 _chart_pairs = [
@@ -3998,7 +4055,7 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
         atm_up_ph, atm_atm_ph, atm_down_ph, ema_ph, oi_candle_ph = _get_cached_or_placeholder_atm_row(underlying)
         _atm_row_executor.submit(_build_atm_triple_background, data)
         tf_table = _build_tf_indicators_table(underlying, spot_price=data.get('spot_price', 0))
-        _oc_live = _oc_table(data['option_df'], data['atm_strike'])
+        _oc_live = _oc_table(data['option_df'], data['atm_strike'], update_time=data.get('update_time', ''))
         _analytics_live = _analytics(data['metrics'], data)
         _oc_combined = _oc_live + _analytics_live
         _last_valid_oc_html = _oc_combined

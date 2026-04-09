@@ -36,7 +36,8 @@
       "Bash(e:/Repository/livenifty50optionchain/.venv/Scripts/pip.exe install:*)",
       "Bash(e:/Repository/livenifty50optionchain/.venv/Scripts/python.exe -c \"from pyngrok import ngrok; print\\('pyngrok ready'\\); from pyngrok.conf import PyngrokConfig; c = PyngrokConfig\\(\\); print\\(f'ngrok binary will be at: {c.ngrok_path}'\\)\")",
       "Bash(e:/Repository/livenifty50optionchain/.venv/Scripts/python.exe -c ':*)",
-      "Bash(.venv/Scripts/python.exe -m pytest tests/test_ngrok_setup.py -v)"
+      "Bash(.venv/Scripts/python.exe -m pytest tests/test_ngrok_setup.py -v)",
+      "mcp__plugin_playwright_playwright__browser_wait_for"
     ]
   }
 }
