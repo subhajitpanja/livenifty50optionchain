@@ -45,6 +45,8 @@ from rich.rule import Rule
 from rich.columns import Columns
 from rich import box
 
+from color_constants import TUI_HEADER_BG
+
 from oc_data_fetcher import (
     fetch_ltp,
     fetch_batch_ltp,
@@ -293,7 +295,7 @@ def print_final_summary(spot, atm_spot, expiry, vix_live, vix_chg, fut_price, fu
         title=f"[bold green]NIFTY Option Chain Live[/bold green]   "
               f"[dim]{datetime.datetime.now().strftime('%d-%b-%Y %H:%M:%S')}[/dim]",
         box=box.DOUBLE_EDGE,
-        header_style="bold white on #1a1a2e",
+        header_style=f"bold white on {TUI_HEADER_BG}",
         show_lines=True, padding=(0, 2),
     )
     tbl.add_column("Field",        style="bold cyan",  min_width=22)

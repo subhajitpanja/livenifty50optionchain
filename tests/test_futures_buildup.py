@@ -46,6 +46,8 @@ from rich.rule import Rule
 from rich import box
 from rich.text import Text
 
+from color_constants import TUI_HEADER_BG
+
 from oc_data_fetcher import (
     get_futures_buildup_data,
     load_previous_futures_data,
@@ -245,7 +247,7 @@ def print_summary_table(results):
         title=f"[bold green]{UNDERLYING} Futures OI Build-Up[/bold green]   "
               f"[dim]{datetime.datetime.now().strftime('%d-%b-%Y  %H:%M:%S')}[/dim]",
         box=box.DOUBLE_EDGE,
-        header_style="bold white on #1a1a2e",
+        header_style=f"bold white on {TUI_HEADER_BG}",
         show_lines=True,
         padding=(0, 1),
     )

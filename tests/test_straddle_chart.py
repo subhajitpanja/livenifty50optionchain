@@ -56,6 +56,7 @@ STEP = INDEX_STEP_MAP.get(UNDERLYING, 50)
 
 
 from paths import INSTRUMENTS_DIR
+from color_constants import LIGHT_BLUE, DEEP_ORANGE, GOLD, PANEL_BG, TEXT_LIGHT
 
 # ── helpers (same as optionchain_gradio.py) ─────────────────────────────────
 def _load_instrument_df():
@@ -121,14 +122,7 @@ def _fetch_option_intraday(security_id, interval=15, label=''):
     return pd.DataFrame()
 
 
-def _calc_rsi(series, period=14):
-    delta = series.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.ewm(com=period - 1, min_periods=1).mean()
-    avg_loss = loss.ewm(com=period - 1, min_periods=1).mean()
-    rs = avg_gain / avg_loss.replace(0, float('nan')).fillna(float('inf'))
-    return (100 - (100 / (1 + rs))).round(2)
+from indicator_utils import calc_rsi as _calc_rsi
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -290,18 +284,18 @@ def run_test():
     fig.add_trace(go.Scatter(
         x=merged['timestamp'], y=merged['s_close'],
         mode='lines+markers', name=f'Straddle {strike}',
-        line=dict(color='#4fc3f7', width=3),
+        line=dict(color=LIGHT_BLUE, width=3),
     ))
     fig.add_trace(go.Scatter(
         x=merged['timestamp'], y=merged['vwap'],
         mode='lines', name='VWAP',
-        line=dict(color='#ff9800', width=2, dash='dot'),
+        line=dict(color=DEEP_ORANGE, width=2, dash='dot'),
     ))
-    fig.add_hline(y=opening_straddle, line_dash='dash', line_color='#ffd700', line_width=2)
+    fig.add_hline(y=opening_straddle, line_dash='dash', line_color=GOLD, line_width=2)
     fig.update_layout(
         title=f"15-Min Straddle | Strike {strike} | Exp {expiry_date}",
-        paper_bgcolor='#0e1117', plot_bgcolor='#0e1117',
-        font=dict(color='#cfd8dc'), height=480,
+        paper_bgcolor=PANEL_BG, plot_bgcolor=PANEL_BG,
+        font=dict(color=TEXT_LIGHT), height=480,
     )
     ok = len(fig.data) >= 2
     if not ok:

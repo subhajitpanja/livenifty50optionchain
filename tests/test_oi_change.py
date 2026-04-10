@@ -55,6 +55,8 @@ from rich.panel import Panel
 from rich.rule import Rule
 from rich import box
 
+from color_constants import TUI_HEADER_BG, TUI_ATM_BG
+
 from oc_data_fetcher import (
     fetch_option_chain,
     load_previous_day_data,
@@ -596,7 +598,7 @@ def step9_final_summary(rows: list, atm: int, spot: float):
     console.print(f"  [dim]NIFTY Option Chain Live   {now}   SPOT={spot:,.2f}   ATM={atm:,}[/dim]\n")
 
     tbl = Table(box=box.DOUBLE_EDGE, show_lines=True, expand=False,
-                header_style="bold white on #1a1a2e")
+                header_style=f"bold white on {TUI_HEADER_BG}")
     tbl.add_column("Build Up",    justify="center", style="bold")
     tbl.add_column("OI Chg%",     justify="right")
     tbl.add_column("OI",          justify="right")
@@ -625,8 +627,8 @@ def step9_final_summary(rows: list, atm: int, spot: float):
         p_bu = _get_buildup(p_oi_chg, p_ltp_chg)
         p_oi_lots = r['p_oi_api'] / LOT_SIZE
 
-        bg = "on #1e1e3a" if is_atm else ""
-        strike_display = f"[bold magenta on #1e1e3a]► {s:,} ◄[/]" if is_atm else f"{s:,}"
+        bg = f"on {TUI_ATM_BG}" if is_atm else ""
+        strike_display = f"[bold magenta on {TUI_ATM_BG}]► {s:,} ◄[/]" if is_atm else f"{s:,}"
 
         tbl.add_row(
             _buildup_color(c_bu),

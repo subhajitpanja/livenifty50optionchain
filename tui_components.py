@@ -15,8 +15,8 @@ Components:
     TUIMarketData    â€” Spot / VIX / Future with change arrows
     TUIOHOLPanel     â€” OH/OL counts for CE/PE
     TUIAPIHealth     â€” API success/fail tracker with sparkline
-    TUILogStream     â€” Rolling log with color-coded categories
-    TUIDashboard     â€” Main orchestrator that renders the full layout
+    TUILogStream     â€” Rolling log with color-coded categories    TUIPanelTracker  â€" Per-panel staleness monitor with auto-alert
+    TUIDataPipeline  â€" API→Parse→Render→Deliver timing breakdown    TUIDashboard     â€” Main orchestrator that renders the full layout
 """
 
 from __future__ import annotations
@@ -475,12 +475,180 @@ class TUIChartsStatus:
 
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-#  TUI DASHBOARD â€” main orchestrator
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-#  TUI DASHBOARD â€” main orchestrator
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════════════════
+#  TUI PANEL TRACKER — per-panel staleness monitor
+# ═══════════════════════════════════════════════════════════════════════════
+class TUIPanelTracker:
+    """Tracks last-update timestamp per panel and detects stale ones.
+
+    Panels that haven't updated within `stale_threshold` seconds are flagged.
+    This catches cases where the browser tab is unfocused or a render stalls.
+    """
+
+    PANEL_NAMES = [
+        "Header", "OI History", "OI Charts", "Option Chain",
+        "Futures", "Straddle 15m", "Straddle 5m", "ATM Charts",
+        "EMA Candle", "OI Candle", "TF Indicators", "History Tabs",
+    ]
+
+    def __init__(self, stale_threshold: float = 15.0):
+        self.stale_threshold = stale_threshold
+        self._last_update: dict[str, float] = {}
+        self._stale_alerts: deque[tuple[str, str, float]] = deque(maxlen=20)
+
+    def touch(self, panel_name: str):
+        """Mark a panel as just-updated."""
+        self._last_update[panel_name] = time.time()
+
+    def touch_many(self, names: list[str]):
+        """Mark multiple panels as just-updated."""
+        now = time.time()
+        for n in names:
+            self._last_update[n] = now
+
+    def get_stale_panels(self) -> list[tuple[str, float]]:
+        """Return list of (panel_name, seconds_since_update) for stale panels."""
+        now = time.time()
+        stale = []
+        for name in self.PANEL_NAMES:
+            last = self._last_update.get(name)
+            if last is None:
+                continue
+            age = now - last
+            if age > self.stale_threshold:
+                stale.append((name, age))
+        return stale
+
+    def check_and_alert(self, log_stream: 'TUILogStream') -> list[str]:
+        """Check for stale panels, log alerts, return list of stale panel names."""
+        stale = self.get_stale_panels()
+        stale_names = []
+        for name, age in stale:
+            stale_names.append(name)
+            ts = datetime.datetime.now().strftime("%H:%M:%S")
+            self._stale_alerts.append((ts, name, age))
+            log_stream.warn(f"STALE: {name} not updated for {age:.0f}s")
+        return stale_names
+
+    def render(self) -> Panel:
+        """Render panel health status table."""
+        now = time.time()
+        tbl = Table(show_header=True, expand=True, border_style="dim",
+                    header_style="tbl.header", padding=(0, 1))
+        tbl.add_column("Panel", style="tbl.key", width=16)
+        tbl.add_column("Age", width=8, justify="right")
+        tbl.add_column("Status", width=8, justify="center")
+
+        for name in self.PANEL_NAMES:
+            last = self._last_update.get(name)
+            if last is None:
+                tbl.add_row(name, "\u2014", "[dim]\u25cb[/]")
+                continue
+            age = now - last
+            if age < 5:
+                icon = f"[status.ok]{ICON_OK}[/]"
+                age_str = f"[status.ok]{age:.1f}s[/]"
+            elif age < self.stale_threshold:
+                icon = f"[status.warn]{ICON_WARN}[/]"
+                age_str = f"[status.warn]{age:.1f}s[/]"
+            else:
+                icon = f"[status.err]{ICON_ERR}[/]"
+                age_str = f"[status.err]{age:.0f}s[/]"
+            tbl.add_row(name, age_str, icon)
+
+        return Panel(tbl, title=f"[tbl.header]{ICON_LIVE} Panel Health[/]",
+                     border_style=BORDER_DATA, padding=(0, 0))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  TUI DATA PIPELINE — API → Parse → Render → Deliver timing
+# ═══════════════════════════════════════════════════════════════════════════
+class TUIDataPipeline:
+    """Tracks timing through the data pipeline stages:
+    API Fetch → Data Parse → HTML Render → Chart Build → Total.
+
+    Each cycle records a breakdown dict and shows the latest + history.
+    """
+
+    STAGES = ["api_fetch", "data_parse", "html_render", "chart_build", "total"]
+    STAGE_LABELS = {
+        "api_fetch":   f"{ICON_REFRESH} API Fetch",
+        "data_parse":  f"{ICON_CHART} Parse",
+        "html_render": "\u2261 Render",
+        "chart_build": f"{ICON_CHART} Charts",
+        "total":       f"{ICON_CLOCK} Total",
+    }
+    # Thresholds (seconds): green < warn < red
+    THRESHOLDS = {
+        "api_fetch":   (1.5, 3.0),
+        "data_parse":  (0.3, 1.0),
+        "html_render": (0.5, 1.5),
+        "chart_build": (2.0, 5.0),
+        "total":       (3.0, 6.0),
+    }
+
+    def __init__(self, max_history: int = 30):
+        self._history: dict[str, deque[float]] = {
+            s: deque(maxlen=max_history) for s in self.STAGES
+        }
+        self._latest: dict[str, float] = {}
+        self._slow_count: int = 0
+
+    def record(self, timings: dict[str, float]):
+        """Record a pipeline cycle. timings keys should match STAGES."""
+        self._latest = timings
+        for stage in self.STAGES:
+            val = timings.get(stage, 0.0)
+            self._history[stage].append(val)
+        # Count slow cycles (total > red threshold)
+        total = timings.get("total", 0.0)
+        if total > self.THRESHOLDS["total"][1]:
+            self._slow_count += 1
+
+    def render(self) -> Panel:
+        tbl = Table(show_header=True, expand=True, border_style="dim",
+                    header_style="tbl.header", padding=(0, 1))
+        tbl.add_column("Stage", style="tbl.key", width=14)
+        tbl.add_column("Time", width=8, justify="right")
+        tbl.add_column("Avg", width=8, justify="right")
+        tbl.add_column("Trend", width=22, no_wrap=True)
+
+        for stage in self.STAGES:
+            label = self.STAGE_LABELS[stage]
+            val = self._latest.get(stage, 0.0)
+            hist = list(self._history[stage])
+            avg = sum(hist) / len(hist) if hist else 0.0
+            warn_th, err_th = self.THRESHOLDS[stage]
+            if val < warn_th:
+                color = "status.ok"
+            elif val < err_th:
+                color = "status.warn"
+            else:
+                color = "status.err"
+            tbl.add_row(
+                label,
+                f"[{color}]{val:.2f}s[/]",
+                f"{avg:.2f}s",
+                _sparkline(hist),
+            )
+
+        # Show slow cycle count
+        if self._slow_count > 0:
+            tbl.add_row(
+                f"{ICON_WARN} SlowCycles",
+                f"[status.err]{self._slow_count}[/]",
+                "", Text("", style="dim"),
+            )
+
+        return Panel(tbl, title=f"[tbl.header]{ICON_ROCKET} Data Pipeline[/]",
+                     border_style=BORDER_DATA, padding=(0, 0))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  TUI DASHBOARD — main orchestrator
+# ═══════════════════════════════════════════════════════════════════════════
+
 class TUIDashboard:
     """
     Main TUI dashboard that composes all panels into a structured layout.
@@ -506,6 +674,8 @@ class TUIDashboard:
         self.log_stream = TUILogStream()
         self.tab_bar = TUITabBar()
         self.charts_status = TUIChartsStatus()
+        self.panel_tracker = TUIPanelTracker()
+        self.pipeline = TUIDataPipeline()
         self._started = False
 
     def _render_dashboard_tab(self, cycle: int, dt_oc: float, dt_total: float,
@@ -522,9 +692,12 @@ class TUIDashboard:
                 self.ohohl_panel.render(option_df),
             ], expand=True, equal=True),
             Columns([
-                self.refresh_panel.render(dt_oc, dt_total),
-                self.api_health.render(),
+                self.pipeline.render(),
+                self.panel_tracker.render(),
             ], expand=True, equal=True),
+            Columns([
+                self.api_health.render(),
+            ], expand=True),
             self.log_stream.render(),
         )
 
@@ -537,8 +710,14 @@ class TUIDashboard:
                                data.get('underlying', 'NIFTY'), cycle),
             self.tab_bar.render(),
             Rule(style="dim"),
-            self.refresh_panel.render(dt_oc, dt_total),
-            self.charts_status.render(),
+            Columns([
+                self.pipeline.render(),
+                self.refresh_panel.render(dt_oc, dt_total),
+            ], expand=True, equal=True),
+            Columns([
+                self.panel_tracker.render(),
+                self.charts_status.render(),
+            ], expand=True, equal=True),
             self.api_health.render(),
         )
 
@@ -556,24 +735,53 @@ class TUIDashboard:
 
     def update(self, cycle: int, dt_oc: float, dt_total: float,
                data: dict, market_open: bool, market_status: str,
-               option_df: Any = None, error: str | None = None):
+               option_df: Any = None, error: str | None = None,
+               pipeline_timings: dict[str, float] | None = None,
+               panels_updated: list[str] | None = None):
         """
         Main entry point - called from smart_refresh() on each cycle.
         Renders the full TUI dashboard to the terminal.
         Auto-cycles through 3 tabs: Dashboard, Performance, Logs.
+
+        Args:
+            pipeline_timings: dict with keys from TUIDataPipeline.STAGES
+            panels_updated: list of panel names that were updated this cycle
         """
         # Record API health
         self.api_health.record(error is None)
 
-        # Auto-log this cycle
+        # Record pipeline timings
+        if pipeline_timings:
+            self.pipeline.record(pipeline_timings)
+
+        # Track which panels were updated
+        if panels_updated:
+            self.panel_tracker.touch_many(panels_updated)
+
+        # Check for stale panels during market hours
+        if market_open:
+            stale_names = self.panel_tracker.check_and_alert(self.log_stream)
+            if stale_names:
+                self.log_stream.warn(
+                    f"#{cycle} {len(stale_names)} stale panel(s): {', '.join(stale_names)}")
+
+        # Auto-log this cycle — structured pipeline summary
         if error:
             self.log_stream.error(f"Cycle #{cycle}: {error}")
         else:
             spot = data.get('spot_price', 0)
             vix = data.get('vix_current', 0)
-            self.log_stream.ok(
-                f"#{cycle} | OC: {dt_oc:.2f}s | Spot: {spot:,.2f} | VIX: {vix:.2f} | Total: {dt_total:.2f}s"
-            )
+            if pipeline_timings:
+                api_t = pipeline_timings.get('api_fetch', 0)
+                render_t = pipeline_timings.get('html_render', 0)
+                self.log_stream.ok(
+                    f"#{cycle} API:{api_t:.2f}s Render:{render_t:.2f}s "
+                    f"Total:{dt_total:.2f}s | Spot:{spot:,.2f} VIX:{vix:.2f}"
+                )
+            else:
+                self.log_stream.ok(
+                    f"#{cycle} | OC: {dt_oc:.2f}s | Spot: {spot:,.2f} | VIX: {vix:.2f} | Total: {dt_total:.2f}s"
+                )
 
         # Update chart status based on market hours
         if market_open:
@@ -645,6 +853,22 @@ class TUIDashboard:
     def update_chart_status(self, name: str, state: str):
         """Update individual chart build status."""
         self.charts_status.update(name, state)
+
+    def touch_panel(self, name: str):
+        """Mark a panel as just-updated (delegates to panel_tracker)."""
+        self.panel_tracker.touch(name)
+
+    def touch_panels(self, names: list[str]):
+        """Mark multiple panels as just-updated."""
+        self.panel_tracker.touch_many(names)
+
+    def record_pipeline(self, timings: dict[str, float]):
+        """Record pipeline stage timings (delegates to pipeline)."""
+        self.pipeline.record(timings)
+
+    def get_stale_panels(self) -> list[str]:
+        """Return names of panels that are stale (exceeded threshold)."""
+        return [name for name, _ in self.panel_tracker.get_stale_panels()]
 
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•

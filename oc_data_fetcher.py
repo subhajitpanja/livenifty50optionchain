@@ -11,6 +11,7 @@ import sys
 import os
 import time
 import datetime
+import logging
 import requests
 import pandas as pd
 import json
@@ -33,6 +34,8 @@ if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
 from Credential.Credential import client_code, token_id
+
+_log = logging.getLogger("oc_data_fetcher")
 
 # ═════════════════════════════════════════════════════════════════════════════
 #^# CONFIGURATION
@@ -321,7 +324,7 @@ def fetch_ltp(security_id: int, exchange_seg: str = "IDX_I", _max_retries: int =
                     any('too many' in str(v).lower()
                         for v in data['data'].get('data', {}).values())):
                     backoff = 2 ** attempt
-                    print(f"[LTP] Rate limited for sec={security_id} (attempt {attempt+1}/{_max_retries+1}), backing off {backoff}s...", flush=True)
+                    _log.warning("[LTP] Rate limited for sec=%s (attempt %d/%d), backing off %ds", security_id, attempt+1, _max_retries+1, backoff)
                     time.sleep(backoff)
                     continue
                 if 'data' in data and exchange_seg in data['data']:
@@ -368,24 +371,24 @@ def fetch_batch_ltp(payload: dict, _max_retries: int = 3) -> dict:
                 data = r.json()
                 if _is_rate_limited(data):
                     backoff = 2 ** attempt  # 1s, 2s, 4s
-                    print(f"[Batch LTP] Rate limited (attempt {attempt+1}/{_max_retries+1}), backing off {backoff}s...", flush=True)
+                    _log.warning("[Batch LTP] Rate limited (attempt %d/%d), backing off %ds", attempt+1, _max_retries+1, backoff)
                     time.sleep(backoff)
                     continue
                 if data.get('status') == 'failure':
-                    print(f"[Batch LTP] API failure: {data}", flush=True)
+                    _log.error("[Batch LTP] API failure: %s", data)
                     return {}
                 if 'data' in data and isinstance(data['data'], dict):
                     return data['data']
             else:
-                print(f"[Batch LTP] HTTP {r.status_code}, retrying...", flush=True)
+                _log.warning("[Batch LTP] HTTP %d, retrying...", r.status_code)
                 time.sleep(2 ** attempt)
                 continue
         except Exception as e:
-            print(f"[Batch LTP] Error: {e}", flush=True)
+            _log.error("[Batch LTP] Error: %s", e)
             if attempt < _max_retries:
                 time.sleep(2 ** attempt)
                 continue
-    print("[Batch LTP] All retries exhausted.", flush=True)
+    _log.error("[Batch LTP] All retries exhausted.")
     return {}
 
 
@@ -500,7 +503,7 @@ def enrich_oh_ol(df: pd.DataFrame) -> pd.DataFrame:
     p_oh = p_tags.count('OH')
     p_ol = p_tags.count('OL')
     if c_oh or c_ol or p_oh or p_ol:
-        print(f"[OH/OL] CE: {c_oh} OH, {c_ol} OL | PE: {p_oh} OH, {p_ol} OL  ({len(df)} strikes)", flush=True)
+        _log.debug("[OH/OL] CE: %d OH, %d OL | PE: %d OH, %d OL  (%d strikes)", c_oh, c_ol, p_oh, p_ol, len(df))
 
     return df
 
@@ -543,14 +546,14 @@ def _get_instrument_df() -> Optional[pd.DataFrame]:
             _instrument_df_date = today_str
             return _instrument_df_cache
 
-        print(f"[Cache] Reading instrument file: {instrument_path.name}")
+        _log.debug("[Cache] Reading instrument file: %s", instrument_path.name)
         df = pd.read_csv(instrument_path, low_memory=False)
         _instrument_df_cache = df
         _instrument_df_date = today_str
         _instrument_df_path = path_str
         return df
     except Exception as e:
-        print(f"[Cache] Error reading instrument file: {e}")
+        _log.error("[Cache] Error reading instrument file: %s", e)
         return _instrument_df_cache  #~# return stale cache if available
 
 

@@ -55,6 +55,47 @@ try:
         RANK_PUT_1, RANK_PUT_2, RANK_PUT_3, RANK_CALL_1, RANK_CALL_2, RANK_CALL_3,
         DEFAULT_PUT_RGBA, DEFAULT_CALL_RGBA, TRANSPARENT,
     )
+    from indicator_utils import (
+        calc_rsi     as _calc_rsi,
+        calc_macd    as _calc_macd,
+        resample_ohlcv as _resample_ohlcv,
+    )
+    from nse_calendar import (
+        NSE_HOLIDAYS      as _NSE_HOLIDAYS,
+        is_weekend        as _is_weekend,
+        is_nse_holiday    as _is_nse_holiday,
+        is_market_open    as _is_market_open,
+        market_status_str as _market_status_str,
+        get_last_trading_date as _get_last_trading_date,
+    )
+    from index_constants import (
+        INDEX_STEP            as _INDEX_STEP,
+        INDEX_SECURITY_IDS_OC as _INDEX_SECURITY_IDS_OC,
+        INDEX_EXCHANGE_SEG    as _INDEX_EXCHANGE_SEG,
+        HISTORY_TAB_COUNT,
+    )
+    from template_utils import (
+        load_css      as _load_css,
+        load_template as _load_template,
+        render        as _render,
+    )
+    import dhan_data as _dhan_data
+    from dhan_data import (
+        load_instrument_df        as _load_instrument_df,
+        fetch_expiry_list_dynamic as _fetch_expiry_list_dynamic,
+        resolve_ce_pe_symbols     as _resolve_ce_pe_symbols,
+        fetch_option_intraday     as _fetch_option_intraday,
+        fetch_ohlcv_direct        as _fetch_ohlcv_direct,
+        fetch_ohlcv_daily         as _fetch_ohlcv_daily,
+        atm_strike_with_cooldown  as _atm_strike_with_cooldown,
+    )
+    import nse_status_html as _nse_status_html
+    from nse_status_html import (
+        check_nse_data_status as _check_nse_data_status,
+        nse_data_status_html  as _nse_data_status_html,
+        run_nse_download      as _run_nse_download,
+        should_auto_download  as _should_auto_download,
+    )
     from ui_labels import (
         LBL_SPOT, LBL_ATM, LBL_EXPIRY, LBL_VIX, LBL_FUT,
         SEC_TOTALS, SEC_SENTIMENT, SEC_OTM, SEC_ITM, SEC_CALL_OI, SEC_PUT_OI,
@@ -71,7 +112,6 @@ try:
     import pandas as pd
     import json
     from pathlib import Path
-    from string import Template
     from paths import (PROJECT_ROOT, HTML_DIR, CSS_STYLES_FILE,
                        INSTRUMENTS_DIR, OPTIONCHAIN_CSV_DIR, CACHE_DIR,
                        FUTURES_DIR, VIX_DIR,
@@ -118,572 +158,32 @@ if sys.platform == 'win32':
         pass
 
 _dbg_console = _RichConsole(force_terminal=True)  #~# shared Rich console for debug logging
+_DBG_VERBOSE = _os.environ.get("OC_DEBUG_VERBOSE", "").lower() in ("1", "true", "yes")
+
+
+def _dbg(msg: str, level: str = "dim"):
+    """Route debug messages: [dim] → only if OC_DEBUG_VERBOSE=1, errors/warnings → always via _tui."""
+    if level == "dim":
+        if _DBG_VERBOSE:
+            _dbg_console.print(f"[dim]{msg}[/]")
+    elif level == "yellow":
+        _tui.log_warn(msg)
+    elif level == "red":
+        _tui.log_error(msg)
+    else:
+        _tui.log_info(msg)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#^# NSE DATA DOWNLOAD — check & download prev-day CSVs via Playwright
+#^# Mock mode state (interactive prompt lower down in the file)
 # ═══════════════════════════════════════════════════════════════════════════
-
-def _get_last_trading_date() -> _dt.date:
-    """Return the most recent trading date (today if after 4 PM, else yesterday).
-    Skips weekends.  Used to check if prev-day data files exist."""
-    try:
-        now_ist = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=5, minutes=30)))
-    except Exception:
-        now_ist = _dt.datetime.now()
-    d = now_ist.date()
-    t = now_ist.time()
-    # If before market close, we need previous trading day's data
-    if t < _dt.time(16, 0):
-        d -= _dt.timedelta(days=1)
-    # Skip weekends
-    while d.weekday() >= 5:
-        d -= _dt.timedelta(days=1)
-    return d
-
-
-def _check_nse_data_status() -> dict:
-    """Check which NSE data files exist for the last trading date.
-    Returns dict with keys: date, option_chain, futures, vix (bool each)."""
-    data_date = _get_last_trading_date()
-    date_str = data_date.isoformat()
-
-    # Option chain: pattern is {date}_exp_*.csv
-    oc_files = list(OPTIONCHAIN_CSV_DIR.glob(f"{date_str}_exp_*.csv"))
-    # Futures: NIFTY_FUTURE_{date}.csv
-    fut_file = FUTURES_DIR / f"NIFTY_FUTURE_{date_str}.csv"
-    # VIX: indiavix_{date}.csv
-    vix_file = VIX_DIR / f"indiavix_{date_str}.csv"
-
-    return {
-        'date': date_str,
-        'option_chain': len(oc_files) > 0,
-        'futures': fut_file.exists(),
-        'vix': vix_file.exists(),
-    }
-
-
-def _nse_data_status_html() -> str:
-    """Return styled HTML showing data file status."""
-    st = _check_nse_data_status()
-    all_ok = st['option_chain'] and st['futures'] and st['vix']
-
-    def _badge(ok: bool, label: str) -> str:
-        if ok:
-            return (f'<span style="background:#1b5e20;color:#a5d6a7;padding:2px 8px;'
-                    f'border-radius:4px;font-size:12px;margin:0 3px;">'
-                    f'&#10003; {label}</span>')
-        return (f'<span style="background:#b71c1c;color:#ef9a9a;padding:2px 8px;'
-                f'border-radius:4px;font-size:12px;margin:0 3px;">'
-                f'&#10007; {label}</span>')
-
-    status_icon = '&#10003;' if all_ok else '&#9888;'
-    status_color = '#a5d6a7' if all_ok else '#ffcc02'
-    status_text = 'All Data Available' if all_ok else 'Missing Data'
-
-    return (
-        f'<div style="display:flex;align-items:center;gap:8px;padding:6px 12px;'
-        f'background:#1a1a2e;border:1px solid #2a3140;border-radius:8px;'
-        f'font-family:monospace;">'
-        f'<span style="color:{status_color};font-weight:bold;font-size:13px;">'
-        f'{status_icon} {status_text}</span>'
-        f'<span style="color:#888;font-size:11px;">({st["date"]})</span>'
-        f'{_badge(st["option_chain"], "Option Chain")}'
-        f'{_badge(st["futures"], "Futures")}'
-        f'{_badge(st["vix"], "VIX")}'
-        f'</div>'
-    )
-
-
-_nse_download_running = False  #~# prevent concurrent downloads
-
-
-def _run_nse_download():
-    """Execute the NSE data download script in a subprocess.
-    Returns status HTML on completion."""
-    global _nse_download_running
-    if _nse_download_running:
-        return _nse_data_status_html()
-
-    _nse_download_running = True
-    try:
-        import subprocess
-        _tui.log_info("NSE data download started...")
-        script = str(PROJECT_ROOT / 'scripts' / 'download_nse_data.py')
-        result = subprocess.run(
-            [sys.executable, script],
-            capture_output=True, text=True, timeout=300,
-            cwd=str(PROJECT_ROOT),
-            encoding='utf-8', errors='replace',
-        )
-        if result.returncode == 0:
-            _tui.log_info("NSE data download completed successfully")
-        else:
-            _tui.log_error(f"NSE data download failed (exit {result.returncode})")
-            if result.stderr:
-                _tui.log_error(result.stderr[:500])
-    except subprocess.TimeoutExpired:
-        _tui.log_error("NSE data download timed out (5 min)")
-    except Exception as e:
-        _tui.log_error(f"NSE data download error: {e}")
-    finally:
-        _nse_download_running = False
-
-    return _nse_data_status_html()
-
-
-def _should_auto_download() -> bool:
-    """Return True if it's after 9 PM IST and data is missing."""
-    try:
-        now_ist = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=5, minutes=30)))
-    except Exception:
-        now_ist = _dt.datetime.now()
-    if now_ist.hour < 21:
-        return False
-    st = _check_nse_data_status()
-    return not (st['option_chain'] and st['futures'] and st['vix'])
-
-
 _MOCK_MODE: bool = False          #~# toggled by startup prompt or Gradio checkbox
 _MOCK_PREV_SNAP: dict = {}        #~# cached so it stays stable across 3s refresh ticks
 
-#~# Number of historical tabs for OC and OI Distribution (Live + N history snapshots)
-HISTORY_TAB_COUNT = 14
+#~# Wire the debug logger into dhan_data so it uses the same Rich console
+_dhan_data.set_logger(_dbg)
+_nse_status_html.set_logger(_tui.log_info, _tui.log_warn, _tui.log_error)
 
-
-def _is_weekend() -> bool:
-    return _dt.date.today().weekday() >= 5  # 5=Saturday, 6=Sunday
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#^# MARKET SESSION DETECTOR — prevent API spam on holidays/weekends/off-hours
-# ═══════════════════════════════════════════════════════════════════════════
-#~# NSE holidays (yyyy-mm-dd) — update yearly; covers 2025-2026
-_NSE_HOLIDAYS: set = {
-    # 2025
-    '2025-02-26', '2025-03-14', '2025-03-31', '2025-04-10', '2025-04-14',
-    '2025-04-18', '2025-05-01',
-    '2025-08-15', '2025-08-27', '2025-10-02', '2025-10-20', '2025-10-21',
-    '2025-10-22', '2025-11-05', '2025-11-26', '2025-12-25',
-    # 2026
-    '2026-01-26', '2026-02-17', '2026-03-10', '2026-03-17',
-    '2026-03-30', '2026-04-03', '2026-04-14', '2026-05-01', '2026-05-25',
-    '2026-07-17', '2026-08-15', '2026-08-17', '2026-10-02', '2026-10-09',
-    '2026-10-19', '2026-10-20', '2026-11-09', '2026-11-24', '2026-12-25',
-}
-
-
-def _is_nse_holiday(d: _dt.date = None) -> bool:
-    """Check if a date is an NSE holiday."""
-    d = d or _dt.date.today()
-    return str(d) in _NSE_HOLIDAYS
-
-
-def _is_market_open() -> bool:
-    """Return True if NSE market is likely open RIGHT NOW.
-    Checks: weekday, not NSE holiday, and within 09:00–15:40 IST.
-    """
-    try:
-        now_ist = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=5, minutes=30)))
-    except Exception:
-        now_ist = _dt.datetime.now()
-    d = now_ist.date()
-    # Weekend
-    if d.weekday() >= 5:
-        return False
-    # Holiday
-    if str(d) in _NSE_HOLIDAYS:
-        return False
-    # Time window: 09:00 – 15:40 IST (40 min buffer after close for settlement)
-    t = now_ist.time()
-    if t < _dt.time(9, 0) or t > _dt.time(15, 40):
-        return False
-    return True
-
-
-def _market_status_str() -> str:
-    """Return a short human-readable market status string."""
-    try:
-        now_ist = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=5, minutes=30)))
-    except Exception:
-        now_ist = _dt.datetime.now()
-    d = now_ist.date()
-    t = now_ist.time()
-    day_name = d.strftime('%A')
-    if d.weekday() >= 5:
-        return f"{day_name} — Weekend (market closed)"
-    if str(d) in _NSE_HOLIDAYS:
-        return f"{day_name} — NSE Holiday (market closed)"
-    if t < _dt.time(9, 0):
-        return f"{day_name} — Pre-market (opens 09:15)"
-    if t > _dt.time(15, 40):
-        return f"{day_name} — Post-market (closed 15:30)"
-    return f"{day_name} — Market OPEN"
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#^# DYNAMIC ATM SELECTION — bypasses Tradehull's broken get_expiry_list
-# ═══════════════════════════════════════════════════════════════════════════
-#~# Tradehull v3.1.0 has a recursive bug in get_expiry_list() that prints
-#~# dozens of "Exception at getting Expiry list" messages per call.
-#~# Instead, we resolve CE/PE symbols directly from the instrument CSV
-#~# using the DhanHQ /v2/optionchain/expirylist API for dynamic expiry dates.
-#~# This eliminates ALL Tradehull expiry-list spam.
-
-import requests as _requests
-
-_ATM_COOLDOWN_SEC: float = 120.0
-_atm_cache: dict = {}
-_expiry_list_cache: dict = {}  # key = underlying → {'expiries': [...], 'ts': float}
-_instrument_df_cache = None
-
-_INDEX_STEP = {'NIFTY': 50, 'BANKNIFTY': 100, 'FINNIFTY': 50, 'MIDCPNIFTY': 25}
-_INDEX_SECURITY_IDS_OC = {'NIFTY': 13, 'BANKNIFTY': 25, 'FINNIFTY': 27, 'MIDCPNIFTY': 442}
-_INDEX_EXCHANGE_SEG = {'NIFTY': 'IDX_I', 'BANKNIFTY': 'IDX_I', 'FINNIFTY': 'IDX_I', 'MIDCPNIFTY': 'IDX_I'}
-
-
-def _load_instrument_df():
-    """Load the instrument CSV (cached after first load).
-    Searches: data/source/instruments/ → fallback to most recent."""
-    global _instrument_df_cache
-    if _instrument_df_cache is not None:
-        return _instrument_df_cache
-    today_str = _dt.date.today().strftime('%Y-%m-%d')
-    fname = f'all_instrument {today_str}.csv'
-    #~# Search in instruments directory
-    search_dirs = [
-        INSTRUMENTS_DIR,
-    ]
-    csv_path = None
-    for deps in search_dirs:
-        candidate = deps / fname
-        if candidate.exists():
-            csv_path = candidate
-            break
-    if csv_path is None:
-        #~# fallback: try the most recent file from any location
-        for deps in search_dirs:
-            candidates = sorted(deps.glob('all_instrument *.csv'), reverse=True)
-            if candidates:
-                csv_path = candidates[0]
-                break
-    if csv_path and csv_path.exists():
-        try:
-            _instrument_df_cache = pd.read_csv(csv_path, low_memory=False)
-            _instrument_df_cache['SEM_EXPIRY_DATE'] = pd.to_datetime(
-                _instrument_df_cache['SEM_EXPIRY_DATE'], errors='coerce')
-            _dbg_console.print(f"[dim]\\[Instrument] Loaded {csv_path.name} ({len(_instrument_df_cache)} rows)[/]")
-        except Exception as e:
-            _dbg_console.print(f"[red]\\[Instrument] Failed to load {csv_path}: {e}[/]")
-    else:
-        _dbg_console.print("[yellow]\\[Instrument] No instrument CSV found in data/source/instruments/[/]")
-    return _instrument_df_cache
-
-
-def _fetch_expiry_list_dynamic(underlying: str) -> list:
-    """Fetch expiry list from DhanHQ API /v2/optionchain/expirylist.
-    Falls back to instrument CSV if API fails.
-    Returns sorted list of YYYY-MM-DD date strings (future only)."""
-    now = _time.time()
-    cached = _expiry_list_cache.get(underlying)
-    if cached and (now - cached['ts']) < 300:  # 5 min cache
-        return cached['expiries']
-
-    security_id = _INDEX_SECURITY_IDS_OC.get(underlying)
-    exchange_seg = _INDEX_EXCHANGE_SEG.get(underlying, 'IDX_I')
-    today_str = _dt.date.today().strftime('%Y-%m-%d')
-    expiries = []
-
-    #~# Method 1: DhanHQ API (reliable, dynamic)
-    if security_id:
-        try:
-            url = 'https://api.dhan.co/v2/optionchain/expirylist'
-            headers = {
-                'access-token': token_id,
-                'client-id': str(client_code),
-                'Content-Type': 'application/json',
-            }
-            payload = {'UnderlyingScrip': security_id, 'UnderlyingSeg': exchange_seg}
-            resp = _requests.post(url, json=payload, headers=headers, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                if data.get('status') == 'success' and 'data' in data:
-                    all_exp = sorted(data['data'])
-                    expiries = [e for e in all_exp if e >= today_str]
-                    _dbg_console.print(
-                        f"[dim]\\[Expiry] {underlying}: {len(expiries)} future expiries from API "
-                        f"(next: {expiries[:3]})[/]")
-        except Exception as e:
-            _dbg_console.print(f"[yellow]\\[Expiry] API failed for {underlying}: {e}[/]")
-
-    #~# Method 2: Fallback to instrument CSV
-    if not expiries:
-        idf = _load_instrument_df()
-        if idf is not None:
-            try:
-                mask = (
-                    (idf['SEM_EXM_EXCH_ID'] == 'NSE') &
-                    (idf['SEM_INSTRUMENT_NAME'] == 'OPTIDX') &
-                    (idf['SEM_TRADING_SYMBOL'].str.startswith(f'{underlying}-', na=False))
-                )
-                exp_dates = idf.loc[mask, 'SEM_EXPIRY_DATE'].dropna().dt.date.unique()
-                expiries = sorted([str(d) for d in exp_dates if str(d) >= today_str])
-                _dbg_console.print(
-                    f"[dim]\\[Expiry] {underlying}: {len(expiries)} from instrument CSV "
-                    f"(next: {expiries[:3]})[/]")
-            except Exception as e:
-                _dbg_console.print(f"[red]\\[Expiry] Instrument CSV parse failed: {e}[/]")
-
-    if expiries:
-        _expiry_list_cache[underlying] = {'expiries': expiries, 'ts': now}
-    return expiries
-
-
-def _resolve_ce_pe_symbols(underlying: str, expiry_date_str: str, strike: int):
-    """Look up CE/PE SEM_CUSTOM_SYMBOL + SEM_SMST_SECURITY_ID from instrument CSV.
-    Returns (ce_symbol, pe_symbol, ce_security_id, pe_security_id) or (None,None,None,None)."""
-    idf = _load_instrument_df()
-    if idf is None:
-        return None, None, None, None
-    try:
-        mask = (
-            (idf['SEM_EXM_EXCH_ID'] == 'NSE') &
-            (idf['SEM_TRADING_SYMBOL'].str.startswith(f'{underlying}-', na=False)) &
-            (idf['SEM_EXPIRY_DATE'].dt.date.astype(str) == expiry_date_str) &
-            (idf['SEM_STRIKE_PRICE'] == float(strike))
-        )
-        filtered = idf[mask]
-        ce_rows = filtered[filtered['SEM_OPTION_TYPE'] == 'CE']
-        pe_rows = filtered[filtered['SEM_OPTION_TYPE'] == 'PE']
-        ce_sym = ce_rows.iloc[-1]['SEM_CUSTOM_SYMBOL'] if not ce_rows.empty else None
-        pe_sym = pe_rows.iloc[-1]['SEM_CUSTOM_SYMBOL'] if not pe_rows.empty else None
-        ce_sec_id = str(int(ce_rows.iloc[-1]['SEM_SMST_SECURITY_ID'])) if not ce_rows.empty else None
-        pe_sec_id = str(int(pe_rows.iloc[-1]['SEM_SMST_SECURITY_ID'])) if not pe_rows.empty else None
-        return ce_sym, pe_sym, ce_sec_id, pe_sec_id
-    except Exception as e:
-        _dbg_console.print(f"[red]\\[Resolve] {underlying} {expiry_date_str} {strike}: {e}[/]")
-        return None, None, None, None
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#^# DIRECT OPTION INTRADAY FETCHER — replaces tsl.get_historical_data entirely
-# ═══════════════════════════════════════════════════════════════════════════
-#~# Uses dhanhq v2.1.0 /v2/charts/intraday endpoint directly.
-#~# For NFO options: exchangeSegment='NSE_FNO', instrument='OPTIDX'
-#~# security_id comes from instrument CSV's SEM_SMST_SECURITY_ID column.
-#~# Also checks data/source/optionchain/ folder for cached daily CSV data.
-
-_option_intraday_cache: dict = {}  # key=(security_id, interval) → {'df':..., 'ts':...}
-
-
-def _fetch_option_intraday(security_id: str, interval: int = 5,
-                           symbol_label: str = '') -> pd.DataFrame:
-    """Fetch intraday OHLCV for an NFO option via Dhan /v2/charts/intraday.
-
-    Args:
-        security_id: SEM_SMST_SECURITY_ID from instrument CSV (string).
-        interval: candle interval in minutes (1, 5, 15, 25, 60).
-        symbol_label: human label for rich debug logging.
-
-    Returns DataFrame with columns: timestamp, open, high, low, close, volume.
-    Cached for 60s per (security_id, interval).
-    """
-    from oc_data_fetcher import API_HEADERS
-    import datetime as _dtmod
-
-    cache_key = (security_id, interval)
-    cached = _option_intraday_cache.get(cache_key)
-    if cached and (_time.time() - cached.get('ts', 0)) < 60:
-        return cached['df']
-
-    #~# 5 trading days ≈ 7 calendar days
-    to_dt = _dtmod.datetime.now()
-    from_dt = to_dt - _dtmod.timedelta(days=7)
-    from_date = from_dt.strftime('%Y-%m-%d %H:%M:%S')
-    to_date = to_dt.strftime('%Y-%m-%d %H:%M:%S')
-
-    try:
-        url = 'https://api.dhan.co/v2/charts/intraday'
-        payload = {
-            'securityId': str(security_id),
-            'exchangeSegment': 'NSE_FNO',
-            'instrument': 'OPTIDX',
-            'interval': int(interval),
-            'oi': True,
-            'fromDate': from_date,
-            'toDate': to_date,
-        }
-        r = _requests.post(url, json=payload, headers=API_HEADERS, timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            if 'open' in data and 'close' in data and 'timestamp' in data:
-                df = pd.DataFrame(data)
-                if not df.empty:
-                    df['timestamp'] = (pd.to_datetime(df['timestamp'], unit='s',
-                                                      errors='coerce')
-                                       .dt.tz_localize('UTC')
-                                       .dt.tz_convert('Asia/Kolkata')
-                                       .dt.tz_localize(None))
-                    df.columns = [c.lower() for c in df.columns]
-                    _option_intraday_cache[cache_key] = {'df': df, 'ts': _time.time()}
-                    _dbg_console.print(
-                        f"[dim]\\[OptionData] {symbol_label} secId={security_id} "
-                        f"{interval}m → {len(df)} candles from API[/]")
-                    return df
-            else:
-                _dbg_console.print(
-                    f"[yellow]\\[OptionData] {symbol_label} secId={security_id}: "
-                    f"API returned no OHLCV data (status={r.status_code})[/]")
-        else:
-            _dbg_console.print(
-                f"[yellow]\\[OptionData] {symbol_label} secId={security_id}: "
-                f"HTTP {r.status_code}[/]")
-    except Exception as e:
-        _dbg_console.print(
-            f"[red]\\[OptionData] {symbol_label} secId={security_id}: {e}[/]")
-
-    #~# Fallback: return stale cache if available
-    if cached:
-        _dbg_console.print(
-            f"[dim]\\[OptionData] {symbol_label}: using stale cache[/]")
-        return cached['df']
-    return pd.DataFrame()
-
-
-def _check_dependencies_for_data(underlying: str, date_str: str = None) -> pd.DataFrame:
-    """Check data/source/optionchain/ folder for cached daily CSV data.
-    These CSVs contain option chain snapshots saved by previous runs.
-    Supports both old naming (YYYY-MM-DD.csv) and new naming
-    (YYYY-MM-DD_exp_YYYY-MM-DD.csv) conventions.
-    Returns DataFrame or empty DataFrame if not found.
-    """
-    deps_dir = OPTIONCHAIN_CSV_DIR
-    if not deps_dir.exists():
-        return pd.DataFrame()
-
-    #~# Try exact date, then loop backwards up to 15 days
-    import datetime as _dtmod
-    if date_str:
-        dates_to_check = [date_str]
-    else:
-        today = _dtmod.date.today()
-        dates_to_check = [str(today - _dtmod.timedelta(days=i)) for i in range(16)]
-
-    for d_str in dates_to_check:
-        #~# Check new naming convention first: YYYY-MM-DD_exp_*.csv
-        new_pattern = list(deps_dir.glob(f'{d_str}_exp_*.csv'))
-        if new_pattern:
-            csv_path = sorted(new_pattern)[-1]  # latest if multiple
-            try:
-                #~# Skip the metadata rows (Date, Expiry Date) at top
-                df = pd.read_csv(csv_path, skiprows=2)
-                if not df.empty:
-                    _dbg_console.print(
-                        f"[dim]\\[Cache] Found cached data: {csv_path.name} "
-                        f"({len(df)} rows)[/]")
-                    return df
-            except Exception:
-                #~# Try without skipping rows (old metadata format)
-                try:
-                    df = pd.read_csv(csv_path)
-                    if not df.empty:
-                        _dbg_console.print(
-                            f"[dim]\\[Cache] Found cached data: {csv_path.name} "
-                            f"({len(df)} rows, no skiprows)[/]")
-                        return df
-                except Exception:
-                    pass
-
-        #~# Fallback: old naming convention YYYY-MM-DD.csv
-        csv_path = deps_dir / f'{d_str}.csv'
-        if csv_path.exists():
-            try:
-                df = pd.read_csv(csv_path)
-                if not df.empty:
-                    _dbg_console.print(
-                        f"[dim]\\[Cache] Found cached data: {csv_path.name} "
-                        f"({len(df)} rows)[/]")
-                    return df
-            except Exception:
-                pass
-    return pd.DataFrame()
-
-
-def _atm_strike_with_cooldown(tsl, underlying: str, expiry_idx: int):
-    """Dynamic ATM selection — uses DhanHQ expiry API + instrument CSV.
-    Completely bypasses Tradehull's broken ATM_Strike_Selection.
-    Returns (ce_symbol, pe_symbol, expiry_date_str) or None on failure."""
-    now = _time.perf_counter()
-    cache_key = (underlying, expiry_idx)
-    cached = _atm_cache.get(cache_key)
-
-    #~# Return cached success if within 60s
-    if cached and cached.get('ok') and (now - cached['ts']) < 60:
-        return cached['result']
-    #~# Return None immediately if last failure was within cooldown
-    if cached and not cached.get('ok') and (now - cached['ts']) < _ATM_COOLDOWN_SEC:
-        return None
-
-    try:
-        #~# Step 1: Get expiry list dynamically
-        expiries = _fetch_expiry_list_dynamic(underlying)
-        if not expiries:
-            _dbg_console.print(
-                f"[yellow]\\[ATM] {underlying}: no expiries found — cooldown {_ATM_COOLDOWN_SEC:.0f}s[/]")
-            _atm_cache[cache_key] = {'result': None, 'ts': now, 'ok': False}
-            return None
-
-        if expiry_idx >= len(expiries):
-            _dbg_console.print(
-                f"[yellow]\\[ATM] {underlying}: expiry_idx={expiry_idx} out of range "
-                f"(only {len(expiries)} available) — using last[/]")
-            expiry_idx = len(expiries) - 1
-        expiry_date_str = expiries[expiry_idx]
-
-        #~# Step 2: Get spot price for ATM calculation
-        spot = 0.0
-        try:
-            from oc_data_fetcher import get_cached_spot_price
-            spot = get_cached_spot_price(underlying)
-        except Exception:
-            pass
-        if spot <= 0 and tsl:
-            try:
-                spot = tsl.get_ltp_data(underlying) or 0.0
-            except Exception:
-                pass
-        if spot <= 0:
-            _dbg_console.print(
-                f"[yellow]\\[ATM] {underlying}: no spot price — cooldown {_ATM_COOLDOWN_SEC:.0f}s[/]")
-            _atm_cache[cache_key] = {'result': None, 'ts': now, 'ok': False}
-            return None
-
-        #~# Step 3: Calculate ATM strike
-        step = _INDEX_STEP.get(underlying, 50)
-        atm_strike = int(round(spot / step) * step)
-
-        #~# Step 4: Resolve CE/PE symbols from instrument CSV
-        ce_sym, pe_sym, _ce_sid, _pe_sid = _resolve_ce_pe_symbols(underlying, expiry_date_str, atm_strike)
-        if not ce_sym or not pe_sym:
-            _dbg_console.print(
-                f"[yellow]\\[ATM] {underlying}: CE/PE not found for "
-                f"expiry={expiry_date_str} strike={atm_strike} — cooldown {_ATM_COOLDOWN_SEC:.0f}s[/]")
-            _atm_cache[cache_key] = {'result': None, 'ts': now, 'ok': False}
-            return None
-
-        result = (ce_sym, pe_sym, expiry_date_str)
-        _dbg_console.print(
-            f"[dim]\\[ATM] {underlying} exp={expiry_date_str} strike={atm_strike} "
-            f"CE={ce_sym} PE={pe_sym}[/]")
-        _atm_cache[cache_key] = {'result': result, 'ts': now, 'ok': True}
-        return result
-
-    except Exception as e:
-        _dbg_console.print(
-            f"[red]\\[ATM] {underlying} expiry={expiry_idx}: {e} "
-            f"— cooldown {_ATM_COOLDOWN_SEC:.0f}s[/]")
-        _atm_cache[cache_key] = {'result': None, 'ts': now, 'ok': False}
-        return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -711,15 +211,10 @@ def _find_last_trading_day(date_series, label: str = '', max_lookback: int = 15)
         check_str = str(check_date)
         if check_str in unique_dates:
             if days_back > 0:
-                _dbg_console.print(
-                    f"[dim]\\[{label}] No data for today ({today}), "
-                    f"found last available: {check_str} ({days_back}d ago, "
-                    f"{check_date.strftime('%A')})[/]")
+                _dbg(f"[{label}] No data for today ({today}), found last available: {check_str} ({days_back}d ago, {check_date.strftime('%A')})")
             return check_str, days_back
 
-    _dbg_console.print(
-        f"[yellow]\\[{label}] No data found in last {max_lookback} days "
-        f"(checked {today} back to {today - _dt.timedelta(days=max_lookback)})[/]")
+    _dbg(f"[{label}] No data found in last {max_lookback} days (checked {today} back to {today - _dt.timedelta(days=max_lookback)})", "yellow")
     return None, -1
 
 
@@ -745,38 +240,6 @@ if _is_weekend():
         print("  – Mock mode off.\n")
 
 # ═══════════════════════════════════════════════════════════════════════════
-#^# TEMPLATE LOADER — loads HTML from templates/html/ and CSS from templates/css/
-# ═══════════════════════════════════════════════════════════════════════════
-_TEMPLATE_DIR = HTML_DIR
-_CSS_FILE = CSS_STYLES_FILE
-
-#~# Cache loaded template strings and CSS to avoid repeated disk reads
-_template_cache: dict[str, str] = {}
-_css_cache: str = ''
-
-
-def _load_css() -> str:
-    """? Load and cache the shared stylesheet."""
-    global _css_cache
-    if not _css_cache:
-        _css_cache = _CSS_FILE.read_text(encoding='utf-8')
-    return _css_cache
-
-
-def _load_template(_tpl_name: str) -> Template:
-    """? Load an HTML template by name (without .html) and return a string.Template."""
-    if _tpl_name not in _template_cache:
-        path = _TEMPLATE_DIR / f'{_tpl_name}.html'
-        _template_cache[_tpl_name] = path.read_text(encoding='utf-8')
-    return Template(_template_cache[_tpl_name])
-
-
-def _render(_tpl_name: str, **kwargs) -> str:
-    """? Render a template with the given variables using safe_substitute."""
-    return _load_template(_tpl_name).safe_substitute(**kwargs)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 #^# OI HISTORY (shared with optionchain_richprint_modified.py)
 # ═══════════════════════════════════════════════════════════════════════════
 OI_HISTORY_FILE = _OI_HISTORY_PATH
@@ -787,6 +250,7 @@ _oi_history_mem_loaded: bool = False  # True after first disk load
 _oi_history_html_cache: str = ''    # cached rendered HTML
 _oi_history_html_len: int = 0       # len(_oi_history_mem) when HTML was built
 _oi_history_html_last_ts: str = ''  # timestamp of last entry when HTML was built
+_oi_history_last_add_mono: float = 0.0  # monotonic clock of last add (fast force-timer)
 
 
 def _load_oi_history() -> list:
@@ -798,86 +262,66 @@ def _load_oi_history() -> list:
             with open(OI_HISTORY_FILE, 'r') as f:
                 data = json.load(f)
                 if isinstance(data, list):
-                    cleaned = []
-                    for entry in data:
-                        if not cleaned:
-                            cleaned.append(entry)
-                        else:
-                            last = cleaned[-1]
-                            if (format_lakh(float(entry.get('bullish_oi', 0) or 0)) != format_lakh(float(last.get('bullish_oi', 0) or 0))
-                                    or format_lakh(float(entry.get('bearish_oi', 0) or 0)) != format_lakh(float(last.get('bearish_oi', 0) or 0))):
-                                cleaned.append(entry)
-                    _oi_history_mem = cleaned[-20:]
+                    _oi_history_mem = [e for e in data if
+                                       (e.get('bullish_oi', 0) or 0) > 0 or
+                                       (e.get('bearish_oi', 0) or 0) > 0][-20:]
     except Exception as e:
         _tui.log_error(f"OI Hist LOAD error: {e}")
     _oi_history_mem_loaded = True
     return _oi_history_mem
 
 
-def _update_oi_history(bullish_oi: float, bearish_oi: float, timestamp: str):
-    """* Update OI history, only if values changed meaningfully from last entry.
-    Requires ≥0.5% ratio shift OR display-value change to record.
-    Force-records every 15s even if unchanged, so the panel stays real-time."""
-    global _oi_history_mem
+def _update_oi_history(bullish_oi: float, bearish_oi: float, timestamp: str) -> bool:
+    """* Update OI history in-memory. Returns True if a new entry was added.
+    Records when: display value changes, ratio shifts ≥0.5%, or 15s elapsed."""
+    global _oi_history_mem, _oi_history_last_add_mono
+    import time as _t
     try:
+        if not (bullish_oi > 0 or bearish_oi > 0):
+            return False
+
         history = _load_oi_history()
         bull_disp = format_lakh(float(bullish_oi))
         bear_disp = format_lakh(float(bearish_oi))
-        should_add = True
-        skip_reason = ''
+        now_mono = _t.monotonic()
+
         if history:
             last = history[-1]
             last_bull = float(last.get('bullish_oi', 0) or 0)
             last_bear = float(last.get('bearish_oi', 0) or 0)
-            last_bull_disp = format_lakh(last_bull)
-            last_bear_disp = format_lakh(last_bear)
 
-            #~# Time-based force: always record if last entry is >60s old
-            _force_by_time = False
-            last_ts = last.get('timestamp', '')
-            try:
-                import datetime as _dt
-                _last_dt = _dt.datetime.strptime(last_ts, "%d-%b-%Y %H:%M:%S")
-                _now_dt = _dt.datetime.now()
-                _force_by_time = (_now_dt - _last_dt).total_seconds() > 15
-            except Exception:
-                _force_by_time = True
+            #~# Fast force-timer: monotonic clock, no strptime overhead
+            elapsed = now_mono - _oi_history_last_add_mono if _oi_history_last_add_mono else 999
+            force_by_time = elapsed > 15
 
-            if _force_by_time:
-                should_add = True
-                skip_reason = ''
-            #~# Skip if display values are identical (and not forced by time)
-            elif last_bull_disp == bull_disp and last_bear_disp == bear_disp:
-                should_add = False
-                skip_reason = f'unchanged ({bull_disp} / {bear_disp})'
-            else:
-                #~# Anti-oscillation: require ≥0.5% ratio shift to record
+            if not force_by_time:
+                #~# Skip if display values identical
+                if format_lakh(last_bull) == bull_disp and format_lakh(last_bear) == bear_disp:
+                    return False
+                #~# Anti-oscillation: require ≥0.5% ratio shift
                 last_tot = last_bull + last_bear
                 cur_tot = float(bullish_oi) + float(bearish_oi)
-                last_pct = (last_bull / last_tot * 100) if last_tot > 0 else 50
-                cur_pct = (float(bullish_oi) / cur_tot * 100) if cur_tot > 0 else 50
-                if abs(cur_pct - last_pct) < 0.5:
-                    should_add = False
-                    skip_reason = f'ratio shift <0.5% ({cur_pct:.1f}% vs {last_pct:.1f}%)'
-        if should_add and (bullish_oi > 0 or bearish_oi > 0):
-            history.append(
-                {'timestamp': timestamp, 'bullish_oi': bullish_oi, 'bearish_oi': bearish_oi})
-            history = history[-20:]
-            _oi_history_mem = history
-            #~# Async-safe disk persist — only when entry actually added
-            try:
-                OI_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-                with open(OI_HISTORY_FILE, 'w') as f:
-                    json.dump(history, f)
-            except Exception:
-                pass
-            _tui.log_info(f"OI Hist + Bull:{bull_disp} Bear:{bear_disp} [{timestamp.split()[-1] if ' ' in timestamp else timestamp}]")
-        elif should_add:
-            _tui.log_debug(f"OI Hist SKIP: both zero")
-        else:
-            _tui.log_debug(f"OI Hist SKIP: {skip_reason}")
+                if last_tot > 0 and cur_tot > 0:
+                    if abs(float(bullish_oi) / cur_tot - last_bull / last_tot) * 100 < 0.5:
+                        return False
+
+        #~# Add entry
+        history.append({'timestamp': timestamp, 'bullish_oi': bullish_oi, 'bearish_oi': bearish_oi})
+        _oi_history_mem = history[-20:]
+        _oi_history_last_add_mono = now_mono
+
+        #~# Disk persist (non-blocking best-effort)
+        try:
+            OI_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(OI_HISTORY_FILE, 'w') as f:
+                json.dump(_oi_history_mem, f)
+        except Exception:
+            pass
+        _tui.log_info(f"OI Hist + Bull:{bull_disp} Bear:{bear_disp} [{timestamp.split()[-1] if ' ' in timestamp else timestamp}]")
+        return True
     except Exception as e:
         _tui.log_error(f"OI Hist ERROR: {e}")
+        return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -900,20 +344,19 @@ def render_opening_cards(display_open: float, saved_strike, c_ltp: float = 0, p_
         if today_low > 0:
             diff_low = abs(display_open - today_low)
             if diff_low == 0:
-                parts.append('<span style="color:#ff9800;font-weight:600">Open = Low</span>')
+                parts.append(_render('open_hilo_span', variant='low-eq', text='Open = Low'))
             elif diff_low <= 50:
-                parts.append('<span style="color:#ff9800">Open &amp; Low Nearby</span>')
+                parts.append(_render('open_hilo_span', variant='low', text='Open &amp; Low Nearby'))
         if today_high > 0:
             diff_high = abs(display_open - today_high)
             if diff_high == 0:
-                parts.append('<span style="color:#4caf50;font-weight:600">Open = High</span>')
+                parts.append(_render('open_hilo_span', variant='high-eq', text='Open = High'))
             elif diff_high <= 50:
-                parts.append('<span style="color:#4caf50">Open &amp; High Nearby</span>')
+                parts.append(_render('open_hilo_span', variant='high', text='Open &amp; High Nearby'))
         if parts:
-            open_hilo_label = (
-                '<div class="oc-card__sub" style="margin-top:3px">'
-                + ' &nbsp;|&nbsp; '.join(parts)
-                + '</div>'
+            open_hilo_label = _render(
+                'open_hilo_label',
+                parts_html=' &nbsp;|&nbsp; '.join(parts),
             )
 
     return _render('opening_cards',
@@ -1148,6 +591,26 @@ def _oc_table(df: pd.DataFrame, atm: float, update_time: str = '') -> str:
     ]
     atm_int = int(atm) if atm else 0
 
+    #~# Backfill Build Up "-"/empty with last known valid signal per strike.
+    #~# Market closed → oi_chg=0 → buildup="-" for every strike. Preserve the
+    #~# last rendered signal so the column stays informative outside market hours.
+    _bu_under = str(_cached_underlying or '')
+    if _bu_under and 'Strike' in df.columns:
+        for _idx, _r in df.iterrows():
+            try:
+                _sk_int = int(float(_r.get('Strike', 0)))
+            except (ValueError, TypeError):
+                continue
+            _key = (_bu_under, _sk_int)
+            for _col, _side in (('C_BuildUp', 'C'), ('P_BuildUp', 'P')):
+                _cur = str(_r.get(_col, '') or '').strip()
+                if _cur and _cur != '-':
+                    _last_valid_buildup.setdefault(_key, {})[_side] = _cur
+                else:
+                    _prev = _last_valid_buildup.get(_key, {}).get(_side)
+                    if _prev:
+                        df.at[_idx, _col] = _prev
+
     #~# Pre-compute top-3 OI for H1/H2/H3 markers
     c_oi_vals = sorted(df['C_OI'].dropna().unique(), reverse=True)[
         :3] if 'C_OI' in df.columns else []
@@ -1272,9 +735,9 @@ def _oc_table(df: pd.DataFrame, atm: float, update_time: str = '') -> str:
                         #~# OI Chg% prefix: ■ for ≥+1001%, ● for >+500% (only positive/increase)
                         if key in ('C_OI_Chg_Pct', 'P_OI_Chg_Pct') and v > 0:
                             if v >= 1001:
-                                txt = f'<span style="color:{LIGHT_BLUE}">■</span> {txt}'
+                                txt = _render('oi_chg_prefix', variant='bar', glyph='■', text=txt)
                             elif v > 500:
-                                txt = f'<span style="color:{GOLD}">●</span> {txt}'
+                                txt = _render('oi_chg_prefix', variant='dot', glyph='●', text=txt)
                     elif 'IV' in key:
                         c = MUTED_LIGHT
                         #~# ATM ±2 IV highlight: Call IV > Put IV → blue; Put IV > Call IV + 3 → blue
@@ -1915,174 +1378,6 @@ def _analytics(m: dict, data: dict | None = None) -> str:
 
 _tf_indicators_cache: dict = {'html': '', 'ts': 0}
 
-# ── Direct Dhan API OHLCV fetcher (5-day intraday) for indicator accuracy ──
-_tf_ohlcv_cache: dict = {}  #~# key = (underlying, interval) → {'df': ..., 'ts': float}
-
-
-def _fetch_ohlcv_direct(underlying: str, interval: int) -> pd.DataFrame:
-    """Fetch intraday OHLCV from Dhan /charts/intraday with full 5-day range.
-
-    Returns DataFrame with columns: timestamp, open, high, low, close, volume.
-    Cached for 60s per (underlying, interval).
-    """
-    from oc_data_fetcher import INDEX_SECURITY_IDS, API_HEADERS
-    import requests, datetime as _dtmod
-
-    cache_key = (underlying, interval)
-    cached = _tf_ohlcv_cache.get(cache_key)
-    if cached and (_time.time() - cached.get('ts', 0)) < 60:
-        return cached['df']
-
-    security_id = INDEX_SECURITY_IDS.get(underlying, 0)
-    if not security_id:
-        return pd.DataFrame()
-
-    #~# 5 trading days = ~7 calendar days to be safe
-    to_date = _dtmod.date.today().strftime('%Y-%m-%d')
-    from_date = (_dtmod.date.today() - _dtmod.timedelta(days=7)).strftime('%Y-%m-%d')
-
-    try:
-        url = "https://api.dhan.co/v2/charts/intraday"
-        payload = {
-            'securityId': str(security_id),
-            'exchangeSegment': 'IDX_I',
-            'instrument': 'INDEX',
-            'interval': interval,
-            'fromDate': from_date,
-            'toDate': to_date,
-        }
-        r = requests.post(url, json=payload, headers=API_HEADERS, timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            #~# Dhan API returns parallel arrays at top level:
-            #~# {open:[], high:[], low:[], close:[], volume:[], timestamp:[]}
-            if 'open' in data and 'close' in data and 'timestamp' in data:
-                df = pd.DataFrame(data)
-                if not df.empty:
-                    #~# Convert epoch timestamps to datetime (UTC→IST)
-                    df['timestamp'] = (pd.to_datetime(df['timestamp'], unit='s',
-                                                      errors='coerce')
-                                       .dt.tz_localize('UTC')
-                                       .dt.tz_convert('Asia/Kolkata')
-                                       .dt.tz_localize(None))
-                    #~# Normalise column names to lowercase
-                    df.columns = [c.lower() for c in df.columns]
-                    _tf_ohlcv_cache[cache_key] = {'df': df, 'ts': _time.time()}
-                    return df
-    except Exception as e:
-        print(f"[TF] Direct OHLCV fetch ({underlying}, {interval}m) error: {e}")
-
-    #~# Return stale cache if available
-    if cached:
-        return cached['df']
-    return pd.DataFrame()
-
-
-def _fetch_ohlcv_daily(underlying: str) -> pd.DataFrame:
-    """Fetch daily OHLCV from Dhan /charts/historical with 1-year range.
-
-    Appends today's partial daily candle (built from 5-min intraday) so that
-    indicators match TradingView's live daily chart behaviour.
-    Cached for 60s per (underlying, 'daily').
-    """
-    from oc_data_fetcher import INDEX_SECURITY_IDS, API_HEADERS
-    import requests, datetime as _dtmod
-
-    cache_key = (underlying, 'daily')
-    cached = _tf_ohlcv_cache.get(cache_key)
-    if cached and (_time.time() - cached.get('ts', 0)) < 60:
-        return cached['df']
-
-    security_id = INDEX_SECURITY_IDS.get(underlying, 0)
-    if not security_id:
-        return pd.DataFrame()
-
-    to_date = _dtmod.date.today().strftime('%Y-%m-%d')
-    from_date = (_dtmod.date.today() - _dtmod.timedelta(days=365)).strftime('%Y-%m-%d')
-
-    try:
-        url = "https://api.dhan.co/v2/charts/historical"
-        payload = {
-            'securityId': str(security_id),
-            'exchangeSegment': 'IDX_I',
-            'instrument': 'INDEX',
-            'expiryCode': 0,
-            'fromDate': from_date,
-            'toDate': to_date,
-        }
-        r = requests.post(url, json=payload, headers=API_HEADERS, timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            #~# Same parallel-array format as intraday
-            if 'open' in data and 'close' in data and 'timestamp' in data:
-                df = pd.DataFrame(data)
-                if not df.empty:
-                    df['timestamp'] = (pd.to_datetime(df['timestamp'], unit='s',
-                                                      errors='coerce')
-                                       .dt.tz_localize('UTC')
-                                       .dt.tz_convert('Asia/Kolkata')
-                                       .dt.tz_localize(None))
-                    df.columns = [c.lower() for c in df.columns]
-
-                    #~# Append today's partial candle from 5-min intraday data
-                    #~# (historical API excludes the current incomplete day)
-                    try:
-                        intra_df = _fetch_ohlcv_direct(underlying, 5)
-                        if intra_df is not None and not intra_df.empty:
-                            today = _dtmod.date.today()
-                            today_mask = intra_df['timestamp'].dt.date == today
-                            today_candles = intra_df.loc[today_mask]
-                            if not today_candles.empty:
-                                today_row = pd.DataFrame([{
-                                    'timestamp': pd.Timestamp(today),
-                                    'open':   float(today_candles.iloc[0]['open']),
-                                    'high':   float(today_candles['high'].max()),
-                                    'low':    float(today_candles['low'].min()),
-                                    'close':  float(today_candles.iloc[-1]['close']),
-                                    'volume': int(today_candles['volume'].sum()),
-                                }])
-                                df = pd.concat([df, today_row], ignore_index=True)
-                    except Exception:
-                        pass  #~# proceed with historical-only data
-
-                    _tf_ohlcv_cache[cache_key] = {'df': df, 'ts': _time.time()}
-                    return df
-    except Exception as e:
-        print(f"[TF] Daily OHLCV fetch ({underlying}) error: {e}")
-
-    if cached:
-        return cached['df']
-    return pd.DataFrame()
-
-
-def _calc_macd(series, fast=12, slow=26, signal=9):
-    """Compute MACD line, signal line, and histogram."""
-    ema_fast = series.ewm(span=fast, adjust=False).mean()
-    ema_slow = series.ewm(span=slow, adjust=False).mean()
-    macd_line = ema_fast - ema_slow
-    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
-    histogram = macd_line - signal_line
-    return macd_line, signal_line, histogram
-
-
-def _resample_ohlcv(df, target_minutes):
-    """Resample a lower-timeframe OHLCV DataFrame to a higher timeframe.
-    Expects columns: timestamp, open, high, low, close, volume.
-    """
-    df = df.copy()
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
-    df = df.set_index('timestamp')
-    rule = f'{target_minutes}min'
-    resampled = df.resample(rule, origin='start').agg({
-        'open': 'first',
-        'high': 'max',
-        'low': 'min',
-        'close': 'last',
-        'volume': 'sum',
-    }).dropna(subset=['open'])
-    resampled = resampled.reset_index()
-    return resampled
-
 
 def _build_tf_indicators_table(underlying='NIFTY', spot_price=0.0):
     """
@@ -2143,7 +1438,7 @@ def _build_tf_indicators_table(underlying='NIFTY', spot_price=0.0):
 
             # RSI(14) — 5-tier color scale
             rsi_series = _calc_rsi(close, 14)
-            rsi_val = float(rsi_series.dropna().iloc[-1]) if not rsi_series.dropna().empty else 0
+            rsi_val = float(rsi_series.dropna().iloc[-1]) if not rsi_series.dropna().empty else 50.0
             if rsi_val > 70:
                 rsi_clr = GREEN              # overbought — bright green
             elif rsi_val > 50 and abs(rsi_val - 50) > 0.5:
@@ -2213,9 +1508,9 @@ def _get_tradehull():
     if _tradehull_instance is None:
         try:
             _tradehull_instance = Tradehull(client_code, token_id)
-            _dbg_console.print("[bold green]\\[Tradehull] Connected successfully[/]")
+            _tui.log_info("[Tradehull] Connected successfully")
         except Exception as e:
-            _dbg_console.print(f"[bold red]\\[Tradehull] Init FAILED: {e}[/]")
+            _dbg(f"[Tradehull] Init FAILED: {e}", "red")
             _tradehull_init_failed = True
             return None
     return _tradehull_instance
@@ -2315,15 +1610,26 @@ def _fig_or_skip(key: str, fig):
     return fig
 
 
-def _calc_rsi(series, period=14):
-    """Compute RSI(period) on a price series."""
-    delta    = series.diff()
-    gain     = delta.clip(lower=0)
-    loss     = -delta.clip(upper=0)
-    avg_gain = gain.ewm(com=period - 1, min_periods=1).mean()
-    avg_loss = loss.ewm(com=period - 1, min_periods=1).mean()
-    rs = avg_gain / avg_loss.replace(0, float('nan')).fillna(float('inf'))
-    return (100 - (100 / (1 + rs))).round(2)
+#~# Per-panel HTML hash cache — skip re-sending unchanged panel HTML
+#~# Same principle as _fig_or_skip but for string payloads. Inside Tier 1 of
+#~# smart_refresh, each live panel (header, futures, tf_table, oi_charts, oc_combined)
+#~# is hashed; if identical to the last sent value, a gr.update() no-op is returned
+#~# instead — so only the panels that are actually idle/stale get refreshed.
+_last_sent_html_hashes: dict = {}
+
+def _html_or_skip(key: str, html):
+    """Return html if its hash changed vs last sent, else gr.update() no-op.
+    Keeps idle panels from being re-pushed to the browser every 3s tick.
+    """
+    if html is None:
+        return gr.update()
+    import hashlib as _hl
+    _payload = html if isinstance(html, str) else str(html)
+    h = _hl.md5(_payload.encode('utf-8', errors='ignore')).hexdigest()
+    if _last_sent_html_hashes.get(key) == h:
+        return gr.update()
+    _last_sent_html_hashes[key] = h
+    return html
 
 
 def _build_one_straddle_chart(strike, open_price, underlying, expiry_idx, chart_label, timeframe='15'):
@@ -2361,9 +1667,7 @@ def _build_one_straddle_chart(strike, open_price, underlying, expiry_idx, chart_
         #~# Resolve CE/PE symbols + security IDs from instrument CSV
         ce_sym, pe_sym, ce_sec_id, pe_sec_id = _resolve_ce_pe_symbols(underlying, expiry_date_str, strike)
         if not ce_sym or not pe_sym or not ce_sec_id or not pe_sec_id:
-            _dbg_console.print(
-                f"[yellow]\\[Chart] {underlying} exp={expiry_date_str} strike={strike}: "
-                f"CE/PE not found in instrument file[/]")
+            _dbg(f"[Chart] {underlying} exp={expiry_date_str} strike={strike}: CE/PE not found in instrument file", "yellow")
             return fc.get('fig')
 
         if (dc.get('strike') == strike and dc.get('ce_sym') == ce_sym
@@ -2587,16 +1891,12 @@ def _build_straddle_charts(data: dict):
         _has_cached = any(v is not None for v in _default)
         if _has_cached:
             if not getattr(_build_straddle_charts, '_offhours_logged', False):
-                _dbg_console.print(
-                    f"[yellow]\\[Straddle] {_market_status_str()} — "
-                    f"using cached/last-available charts (market closed)[/]")
+                _dbg(f"[Straddle] {_market_status_str()} — using cached charts", "yellow")
                 _build_straddle_charts._offhours_logged = True
             return _default
         #~# Cache empty — build once with last available data
         if not getattr(_build_straddle_charts, '_offhours_logged', False):
-            _dbg_console.print(
-                f"[yellow]\\[Straddle] {_market_status_str()} — "
-                f"cache empty, building charts with last available data[/]")
+            _dbg(f"[Straddle] {_market_status_str()} — cache empty, building with historical data", "yellow")
             _build_straddle_charts._offhours_logged = True
     else:
         _build_straddle_charts._offhours_logged = False
@@ -2610,8 +1910,7 @@ def _build_straddle_charts(data: dict):
         return _default
     if not strike:
         return None, None, None, None
-    _dbg_console.print(
-        f"[dim]\\[Straddle] Building 4 charts: {underlying} strike={strike} open={open_price:.2f}[/]")
+    _dbg(f"[Straddle] Building 4 charts: {underlying} strike={strike} open={open_price:.2f}")
     fig0_15 = _build_one_straddle_chart(strike, open_price, underlying, 0, 'Current Expiry', '15')
     fig1_15 = _build_one_straddle_chart(strike, open_price, underlying, 1, 'Next Expiry', '15')
     fig0_5  = _build_one_straddle_chart(strike, open_price, underlying, 0, 'Current Expiry', '5')
@@ -2674,9 +1973,7 @@ def _build_strike_straddle_chart(strike: int, open_price: float,
         #~# Resolve CE/PE symbols + security IDs from instrument CSV
         ce_sym, pe_sym, ce_sec_id, pe_sec_id = _resolve_ce_pe_symbols(underlying, expiry_date_str, strike)
         if not ce_sym or not pe_sym or not ce_sec_id or not pe_sec_id:
-            _dbg_console.print(
-                f"[yellow]\\[Chart-WS] {underlying} exp={expiry_date_str} strike={strike}: "
-                f"CE/PE not found in instrument file[/]")
+            _dbg(f"[Chart-WS] {underlying} exp={expiry_date_str} strike={strike}: CE/PE not found in instrument file", "yellow")
             return fc.get('fig')
 
         if dc.get('ce_sym') == ce_sym and (now - dc.get('ts', 0)) < 60:
@@ -2880,16 +2177,12 @@ def _build_atm_triple_charts(data: dict) -> tuple:
         _has_cached  = any(v is not None for v in (_cached_down, _cached_atm, _cached_up))
         if _has_cached:
             if not getattr(_build_atm_triple_charts, '_offhours_logged', False):
-                _dbg_console.print(
-                    f"[yellow]\\[ATM-Triple] {_market_status_str()} — "
-                    f"using cached charts (market closed)[/]")
+                _dbg(f"[ATM-Triple] {_market_status_str()} — using cached charts", "yellow")
                 _build_atm_triple_charts._offhours_logged = True
             return (_cached_down, _cached_atm, _cached_up)
         #~# Cache empty — build once with last available data
         if not getattr(_build_atm_triple_charts, '_offhours_logged', False):
-            _dbg_console.print(
-                f"[yellow]\\[ATM-Triple] {_market_status_str()} — "
-                f"cache empty, building charts with last available data[/]")
+            _dbg(f"[ATM-Triple] {_market_status_str()} — cache empty, building with historical", "yellow")
             _build_atm_triple_charts._offhours_logged = True
     else:
         _build_atm_triple_charts._offhours_logged = False
@@ -3648,6 +2941,9 @@ def _get_cached_or_placeholder_atm_row(underlying: str = 'NIFTY'):
 _cached_full_data = {}
 _cached_underlying = None
 _last_valid_futures_html: str = ''  #~# Cache last non-empty futures buildup HTML for market-closed display
+#~# Cache last valid buildup signal per (underlying, strike) → {'C': 'LB', 'P': 'SC'}
+#~# Used to preserve Build Up column display when market closes (oi_chg=0 → buildup="-")
+_last_valid_buildup: dict[tuple[str, int], dict[str, str]] = {}
 
 
 def refresh_data(underlying, expiry_idx, num_strikes):
@@ -3944,7 +3240,7 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
                 #~# Data unchanged — still update OI history (force-timer keeps it fresh)
                 _m0 = data.get('metrics', {})
                 import datetime as _dt0
-                _update_oi_history(
+                _oi_added = _update_oi_history(
                     _m0.get('bullish_oi', 0), _m0.get('bearish_oi', 0),
                     _dt0.datetime.now().strftime("%d-%b-%Y %H:%M:%S"))
                 #~# Check if background-built chart figures need delivery
@@ -3958,30 +3254,43 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
                     ('oi_candle', oi_candle_ph),
                 ]
                 _pending = any(_last_sent_fig_ids.get(k) != id(f) for k, f in _chart_pairs)
-                if not _pending:
+                if not _pending and not _oi_added:
                     #~# Truly nothing changed — zero bytes to browser
                     dt_total = _time.time() - t0
-                    _tui.log_info(f"#{cycle} SKIP (unchanged) OC:{dt_oc:.2f}s Total:{dt_total:.2f}s")
+                    _tui.update(
+                        cycle=cycle, dt_oc=dt_oc, dt_total=dt_total, data=data,
+                        market_open=_is_market_open(), market_status=_market_status_str(),
+                        option_df=_odf,
+                        pipeline_timings={"api_fetch": dt_oc, "html_render": 0, "chart_build": 0, "total": dt_total},
+                    )
+                    _tui.log_info(f"#{cycle} SKIP (no change) API:{dt_oc:.2f}s")
                     return tuple(gr.update() for _ in range(_OUTPUT_COUNT))
-                #~# Data unchanged but chart figures updated in background — send only charts
-                dt_total = _time.time() - t0
-                _tui.log_info(f"#{cycle} CHARTS-ONLY (data unchanged, figs pending) OC:{dt_oc:.2f}s Total:{dt_total:.2f}s")
                 _noop = gr.update()
+                _oi_hist_html = _oi_history_panel(data) if _oi_added else _noop
+                dt_total = _time.time() - t0
+                _tui.update(
+                    cycle=cycle, dt_oc=dt_oc, dt_total=dt_total, data=data,
+                    market_open=_is_market_open(), market_status=_market_status_str(),
+                    option_df=_odf,
+                    pipeline_timings={"api_fetch": dt_oc, "html_render": 0, "chart_build": 0, "total": dt_total},
+                    panels_updated=["OI History"] if _oi_added else [],
+                )
+                _tui.log_info(f"#{cycle} T0-PARTIAL oi_hist={'Y' if _oi_added else 'N'} figs={'Y' if _pending else 'N'}")
                 _oi_noop, _oc_noop = _history_noop()
                 return (
-                    _noop,     # header
-                    _noop,     # oi_history
-                    _noop,     # tech_analysis
-                    _noop,     # oi_charts
-                    *_oi_noop, # oi_dist history tabs + ts
-                    _noop,     # oc_combined
-                    *_oc_noop, # oc history tabs + ts
-                    _noop,     # futures
+                    _noop,         # header
+                    _oi_hist_html, # oi_history — sent when new entry added
+                    _noop,         # tech_analysis
+                    _noop,         # oi_charts
+                    *_oi_noop,     # oi_dist history tabs + ts
+                    _noop,         # oc_combined
+                    *_oc_noop,     # oc history tabs + ts
+                    _noop,         # futures
                     _fig_or_skip('s15_0', s_fig0_15),
                     _fig_or_skip('s15_1', s_fig1_15),
                     _fig_or_skip('s5_0', s_fig0_5),
                     _fig_or_skip('s5_1', s_fig1_5),
-                    _noop,     # tf_indicators
+                    _noop,         # tf_indicators
                     _fig_or_skip('atm_up', atm_up_ph),
                     _fig_or_skip('atm_atm', atm_atm_ph),
                     _fig_or_skip('atm_down', atm_down_ph),
@@ -4016,25 +3325,101 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
         data['_update_oi'] = True
 
         # ── TIER 1: LIVE PANELS (always rebuilt and sent when data changed) ──
+        t_render = _time.time()
         header_html = _header(data)
         data['_update_oi'] = False
         _cached_full_data['_update_oi'] = False
 
-        #~# Log OI buildup summary for terminal visibility
-        _m = data.get('metrics', {})
-        _bull = _m.get('bullish_oi', 0)
-        _bear = _m.get('bearish_oi', 0)
-        _tot_bu = _bull + _bear
-        _bull_pct = (_bull / _tot_bu * 100) if _tot_bu > 0 else 0
-        _neutral_c = _m.get('call_neutral', 0)
-        _neutral_p = _m.get('put_neutral', 0)
-        _tui.log_info(
-            f"#{cycle} Bull:{format_lakh(_bull)}({_bull_pct:.0f}%) Bear:{format_lakh(_bear)}"
-            f" Neutral:C={format_lakh(_neutral_c)}/P={format_lakh(_neutral_p)}"
-        )
+        #~# Charts: return cached/placeholder, skip if figure object unchanged
+        t_chart = _time.time()
+        s_fig0_15, s_fig1_15, s_fig0_5, s_fig1_5 = _get_cached_or_placeholder_charts()
+        _chart_executor.submit(_build_charts_background, data)
+        #~# ATM triple + EMA + OI candle — background build, skip if unchanged
+        atm_up_ph, atm_atm_ph, atm_down_ph, ema_ph, oi_candle_ph = _get_cached_or_placeholder_atm_row(underlying)
+        _atm_row_executor.submit(_build_atm_triple_background, data)
+        dt_chart = _time.time() - t_chart
 
-        #^# TUI Dashboard — enhanced terminal display
+        tf_table = _build_tf_indicators_table(underlying, spot_price=data.get('spot_price', 0))
+        _oc_live = _oc_table(data['option_df'], data['atm_strike'], update_time=data.get('update_time', ''))
+        _analytics_live = _analytics(data['metrics'], data)
+        _oc_combined = _oc_live + _analytics_live
+        _last_valid_oc_html = _oc_combined
+        _oi_charts_live = _oi_charts(data)
+        dt_render = _time.time() - t_render
+
+        # ── TIER 2: HISTORY TABS (lazy — only sent when OC data hash changed) ──
+        _push_oc_snapshot(_oc_combined, df=data['option_df'])
+        _push_oi_dist_snapshot(_oi_charts_live, df=data.get('option_df'))
+
+        _history_updated = False
+        if _oc_last_data_hash != _last_history_sent_hash:
+            _oi_dist_hist = _get_oi_dist_history_htmls()
+            _oc_hist = _get_oc_history_htmls()
+            _last_history_sent_hash = _oc_last_data_hash
+            oi_hist_out = [*_oi_dist_hist, _get_oi_dist_ts_html()]
+            oc_hist_out = [*_oc_hist, _get_oc_ts_html()]
+            _history_updated = True
+        else:
+            oi_hist_out, oc_hist_out = _history_noop()
+
+        #~# Futures buildup: render and cache; fallback to cached HTML when market closed
+        futures_html = _futures(data.get('futures_buildup', []), underlying)
+        if futures_html:
+            _last_valid_futures_html = futures_html
+        else:
+            futures_html = _last_valid_futures_html
+
+        #^# Pipeline timing + panel tracking for TUI
         dt_total = _time.time() - t0
+        _pipeline_timings = {
+            "api_fetch": dt_oc,
+            "data_parse": 0.0,  # included in api_fetch for batched calls
+            "html_render": dt_render,
+            "chart_build": dt_chart,
+            "total": dt_total,
+        }
+
+        #~# Per-panel skip: only send a panel if its HTML actually changed.
+        #~# Idle panels (unchanged hash) become gr.update() no-ops — nothing re-rendered.
+        _noop = gr.update()
+        _header_out     = _html_or_skip('header', header_html)
+        _oi_hist_out    = _html_or_skip('oi_history', _oi_history_panel(data))
+        _oi_charts_out  = _html_or_skip('oi_charts', _oi_charts_live)
+        _oc_out         = _html_or_skip('oc_combined', _oc_combined)
+        _tf_out         = _html_or_skip('tf_table', tf_table)
+        _futures_out    = _html_or_skip('futures', futures_html) if futures_html else _noop
+
+        #~# Track which panels were actually sent (for TUI)
+        _panels_updated = []
+        if _header_out    is not _noop: _panels_updated.append("Header")
+        if _oi_hist_out   is not _noop: _panels_updated.append("OI History")
+        if _oi_charts_out is not _noop: _panels_updated.append("OI Charts")
+        if _oc_out        is not _noop: _panels_updated.append("Option Chain")
+        if _tf_out        is not _noop: _panels_updated.append("TF Indicators")
+        if _futures_out   is not _noop: _panels_updated.append("Futures")
+        #~# Evaluate _fig_or_skip ONCE per figure — calling twice would cache the
+        #~# id on the tracking call and cause the return tuple to send gr.update()
+        #~# for a genuinely new figure.
+        _fo_s15_0  = _fig_or_skip('s15_0',  s_fig0_15)
+        _fo_s15_1  = _fig_or_skip('s15_1',  s_fig1_15)
+        _fo_s5_0   = _fig_or_skip('s5_0',   s_fig0_5)
+        _fo_s5_1   = _fig_or_skip('s5_1',   s_fig1_5)
+        _fo_atm_up   = _fig_or_skip('atm_up',   atm_up_ph)
+        _fo_atm_atm  = _fig_or_skip('atm_atm',  atm_atm_ph)
+        _fo_atm_down = _fig_or_skip('atm_down', atm_down_ph)
+        _fo_ema      = _fig_or_skip('ema',      ema_ph)
+        _fo_oi_candle = _fig_or_skip('oi_candle', oi_candle_ph)
+        if _fo_s15_0 is not _noop:
+            _panels_updated.extend(["Straddle 15m", "Straddle 5m"])
+        if _fo_atm_atm is not _noop:
+            _panels_updated.append("ATM Charts")
+        if _fo_ema is not _noop:
+            _panels_updated.append("EMA Candle")
+        if _fo_oi_candle is not _noop:
+            _panels_updated.append("OI Candle")
+        if _history_updated:
+            _panels_updated.append("History Tabs")
+
         mkt_open = _is_market_open()
         mkt_status = _market_status_str()
         _odf = data.get('option_df')
@@ -4046,61 +3431,29 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
             market_open=mkt_open,
             market_status=mkt_status,
             option_df=_odf,
+            pipeline_timings=_pipeline_timings,
+            panels_updated=_panels_updated,
         )
 
-        #~# Charts: return cached/placeholder, skip if figure object unchanged
-        s_fig0_15, s_fig1_15, s_fig0_5, s_fig1_5 = _get_cached_or_placeholder_charts()
-        _chart_executor.submit(_build_charts_background, data)
-        #~# ATM triple + EMA + OI candle — background build, skip if unchanged
-        atm_up_ph, atm_atm_ph, atm_down_ph, ema_ph, oi_candle_ph = _get_cached_or_placeholder_atm_row(underlying)
-        _atm_row_executor.submit(_build_atm_triple_background, data)
-        tf_table = _build_tf_indicators_table(underlying, spot_price=data.get('spot_price', 0))
-        _oc_live = _oc_table(data['option_df'], data['atm_strike'], update_time=data.get('update_time', ''))
-        _analytics_live = _analytics(data['metrics'], data)
-        _oc_combined = _oc_live + _analytics_live
-        _last_valid_oc_html = _oc_combined
-        _oi_charts_live = _oi_charts(data)
-
-        # ── TIER 2: HISTORY TABS (lazy — only sent when OC data hash changed) ──
-        _push_oc_snapshot(_oc_combined, df=data['option_df'])
-        _push_oi_dist_snapshot(_oi_charts_live, df=data.get('option_df'))
-
-        if _oc_last_data_hash != _last_history_sent_hash:
-            _oi_dist_hist = _get_oi_dist_history_htmls()
-            _oc_hist = _get_oc_history_htmls()
-            _last_history_sent_hash = _oc_last_data_hash
-            oi_hist_out = [*_oi_dist_hist, _get_oi_dist_ts_html()]
-            oc_hist_out = [*_oc_hist, _get_oc_ts_html()]
-            _tui.log_info(f"#{cycle} History tabs updated (data changed)")
-        else:
-            oi_hist_out, oc_hist_out = _history_noop()
-
-        #~# Apply Plotly figure de-duplication — skip re-sending unchanged cached figures
-        #~# Futures buildup: render and cache; fallback to cached HTML when market closed
-        futures_html = _futures(data.get('futures_buildup', []), underlying)
-        if futures_html:
-            _last_valid_futures_html = futures_html
-        else:
-            futures_html = _last_valid_futures_html
         return (
-            header_html,
-            _oi_history_panel(data),
+            _header_out,
+            _oi_hist_out,
             "",  #~# tech_analysis slot (removed, kept for output parity)
-            _oi_charts_live,
+            _oi_charts_out,
             *oi_hist_out,
-            _oc_combined,
+            _oc_out,
             *oc_hist_out,
-            futures_html,
-            _fig_or_skip('s15_0', s_fig0_15),
-            _fig_or_skip('s15_1', s_fig1_15),
-            _fig_or_skip('s5_0', s_fig0_5),
-            _fig_or_skip('s5_1', s_fig1_5),
-            tf_table,
-            _fig_or_skip('atm_up', atm_up_ph),
-            _fig_or_skip('atm_atm', atm_atm_ph),
-            _fig_or_skip('atm_down', atm_down_ph),
-            _fig_or_skip('ema', ema_ph),
-            _fig_or_skip('oi_candle', oi_candle_ph),
+            _futures_out,
+            _fo_s15_0,
+            _fo_s15_1,
+            _fo_s5_0,
+            _fo_s5_1,
+            _tf_out,
+            _fo_atm_up,
+            _fo_atm_atm,
+            _fo_atm_down,
+            _fo_ema,
+            _fo_oi_candle,
         )
     except Exception as e:
         _tui.log_error(f"#{cycle} FATAL: {e}")
@@ -4249,10 +3602,15 @@ window.ocSortCol = ocSortCol;
     setInterval(updateAllTimestamps, 2000);
 })();
 
-// ── Tab visibility: force refresh when user returns to this tab ──────
+// ── Tab visibility — gentle resync only, no page reload ───────────────
+// IMPORTANT: Do NOT trigger full refreshes or reloads on idle ticks.
+// The backend's smart_refresh does per-panel skip on every 3s tick, so
+// "no DOM mutation" is normal and expected — it is NOT a staleness signal.
 (function() {
     var _wasHidden = false;
     var _hiddenAt = 0;
+    var _longAwayMs = 300000;  // 5 min away = reload (WS likely dead)
+
     document.addEventListener('visibilitychange', function() {
         if (document.hidden) {
             _wasHidden = true;
@@ -4261,49 +3619,36 @@ window.ocSortCol = ocSortCol;
             _wasHidden = false;
             var awayMs = Date.now() - _hiddenAt;
             console.log('[OC] Tab visible after ' + (awayMs/1000).toFixed(0) + 's away');
-            // Trigger Gradio refresh button click to get fresh data immediately
-            var btn = document.querySelector('#oc-refresh-btn');
-            if (btn) { btn.click(); }
-            updateAllTimestamps();
-            // Retry after 1.5s in case Gradio WS was still reconnecting
-            setTimeout(function() {
-                if (btn) { btn.click(); }
-            }, 1500);
-            // If away >30s, Gradio WS may have disconnected — force reload
-            if (awayMs > 60000) {
-                console.log('[OC] Away >60s — reloading page for fresh WS connection');
-                setTimeout(function() { window.location.reload(); }, 2000);
+            if (typeof updateAllTimestamps === 'function') updateAllTimestamps();
+            // Only reload if away long enough that the Gradio WS likely dropped.
+            // Short Alt-Tabs: do nothing — the 3s Timer already keeps data fresh.
+            if (awayMs > _longAwayMs) {
+                console.log('[OC] Away >5min — reloading for fresh WS connection');
+                setTimeout(function() { window.location.reload(); }, 500);
             }
         }
     });
-    // Also listen for window focus (catches Alt-Tab and taskbar clicks)
-    window.addEventListener('focus', function() {
-        var btn = document.querySelector('#oc-refresh-btn');
-        if (btn) { btn.click(); }
-    });
+    // Prevent browser tab throttling by keeping a minimal wake lock
+    function _keepAlive() {
+        requestAnimationFrame(_keepAlive);
+    }
+    _keepAlive();
 })();
 
-// ── Browser health monitor — auto-reload before Chrome OOMs ───────────
+// ── Browser health monitor — only reload on genuine OOM risk ──────────
+// NO periodic reload. NO heartbeat reload. Only reload if Chrome heap
+// is genuinely about to OOM (>2500MB). The per-panel skip in the
+// backend keeps heap pressure low in steady state.
 (function() {
-    var _startTime = Date.now();
     setInterval(function() {
-        var runMin = (Date.now() - _startTime) / 60000;
-        var shouldReload = false;
-        // Check JS heap if Chrome exposes it
         if (window.performance && window.performance.memory) {
             var usageMB = window.performance.memory.usedJSHeapSize / (1024 * 1024);
-            if (usageMB > 1500) {
-                console.warn('[OC] JS heap at ' + usageMB.toFixed(0) + 'MB — reloading');
-                shouldReload = true;
+            if (usageMB > 2500) {
+                console.warn('[OC] JS heap at ' + usageMB.toFixed(0) + 'MB — reloading to avoid OOM');
+                window.location.reload();
             }
         }
-        // Hard safety net: reload every 45 minutes regardless
-        if (runMin > 45) {
-            console.warn('[OC] Running ' + runMin.toFixed(0) + 'min — periodic reload');
-            shouldReload = true;
-        }
-        if (shouldReload) window.location.reload();
-    }, 30000);
+    }, 60000);
 })();
 """
 
@@ -4412,9 +3757,11 @@ with gr.Blocks(title="NIFTY Option Chain Live") as demo:
         return _nse_data_status_html()
     demo.load(fn=_auto_download_if_needed, inputs=[], outputs=[nse_status_out], show_progress="minimal")
 
-    #~# Silent auto-refresh every 3 seconds — NO loading fade/spinner/opacity change
-    #~# show_progress="hidden" ensures zero visual disruption during interval updates
-    gr.Timer(value=3, active=True).tick(
+    #~# Silent auto-refresh every 1 second — cheap because smart_refresh short-circuits
+    #~# (Tier 0) when nothing changed, so idle ticks are near-zero cost and send no bytes.
+    #~# Reducing from 3s → 1s makes genuine changes reach the browser immediately,
+    #~# without ever re-rendering the whole page (per-panel skip handles that).
+    gr.Timer(value=1, active=True).tick(
         fn=smart_refresh, inputs=ins, outputs=outs, show_progress="hidden")
 
 
@@ -4431,7 +3778,7 @@ def _kill_port_7860():
                 if pid.isdigit() and int(pid) != 0:
                     subprocess.run(['taskkill', '/F', '/PID', pid],
                                    capture_output=True, timeout=5)
-                    _dbg_console.print(f"[yellow]\\[Port] Killed PID {pid} on port 7860[/]")
+                    _dbg(f"[Port] Killed PID {pid} on port 7860", "yellow")
     except Exception:
         pass
 

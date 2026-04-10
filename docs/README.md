@@ -51,6 +51,8 @@ docs/
 | **Tests** | [README_PLAYWRIGHT_TESTS.md](testing/README_PLAYWRIGHT_TESTS.md) | Test guide |
 | **Checklist** | [CHECKLIST.md](checklists/CHECKLIST.md) | Verification |
 | **Deliverables** | [DELIVERABLES.md](checklists/DELIVERABLES.md) | Summary |
+| **Updates 04-04** | [UPDATES_2026_04_04.md](UPDATES_2026_04_04.md) | Spacing & docs reorg |
+| **Updates 04-09** | [UPDATES_2026_04_09.md](UPDATES_2026_04_09.md) | OI History optimization |
 
 ## Project Overview
 

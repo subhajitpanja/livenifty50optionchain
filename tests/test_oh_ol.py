@@ -32,6 +32,8 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.rule import Rule
 from rich import box
 
+from color_constants import OH_MARKER, OL_MARKER
+
 console = Console(force_terminal=True, width=140)
 _results = []
 _t_start = time.perf_counter()
@@ -159,16 +161,16 @@ for _, row in odf.iterrows():
 
     # Color the tags
     if c_tag == 'OH':
-        c_tag_styled = "[bold #ff6d00]O=H[/]"
+        c_tag_styled = f"[bold {OH_MARKER}]O=H[/]"
     elif c_tag == 'OL':
-        c_tag_styled = "[bold #2979ff]O=L[/]"
+        c_tag_styled = f"[bold {OL_MARKER}]O=L[/]"
     else:
         c_tag_styled = "-"
 
     if p_tag == 'OH':
-        p_tag_styled = "[bold #ff6d00]O=H[/]"
+        p_tag_styled = f"[bold {OH_MARKER}]O=H[/]"
     elif p_tag == 'OL':
-        p_tag_styled = "[bold #2979ff]O=L[/]"
+        p_tag_styled = f"[bold {OL_MARKER}]O=L[/]"
     else:
         p_tag_styled = "-"
 
@@ -209,10 +211,10 @@ summary = Table(box=box.DOUBLE_EDGE, show_header=False, expand=False, padding=(0
 summary.add_column(style="bold", width=20)
 summary.add_column(width=15, justify="right")
 summary.add_row("[cyan]Total Strikes[/]", f"[bold]{len(odf)}[/]")
-summary.add_row("[#ff6d00]CE Open=High[/]", f"[#ff6d00]{c_oh_count}[/]")
-summary.add_row("[#2979ff]CE Open=Low[/]", f"[#2979ff]{c_ol_count}[/]")
-summary.add_row("[#ff6d00]PE Open=High[/]", f"[#ff6d00]{p_oh_count}[/]")
-summary.add_row("[#2979ff]PE Open=Low[/]", f"[#2979ff]{p_ol_count}[/]")
+summary.add_row(f"[{OH_MARKER}]CE Open=High[/]", f"[{OH_MARKER}]{c_oh_count}[/]")
+summary.add_row(f"[{OL_MARKER}]CE Open=Low[/]", f"[{OL_MARKER}]{c_ol_count}[/]")
+summary.add_row(f"[{OH_MARKER}]PE Open=High[/]", f"[{OH_MARKER}]{p_oh_count}[/]")
+summary.add_row(f"[{OL_MARKER}]PE Open=Low[/]", f"[{OL_MARKER}]{p_ol_count}[/]")
 console.print(summary)
 console.print()
 

@@ -10,9 +10,58 @@
     --oc-h3-clr: #b0bec5;
     --oc-text: #cfd8dc;
     --oc-muted: #9aa4ad;
+    --oc-muted-dark: #888;
     --oc-panel-bg: #0e1117;
     --oc-panel-alt: #1a1a2e;
+    --oc-panel-border: #2a3140;
+    /* status badge palette */
+    --oc-badge-ok-bg: #1b5e20;
+    --oc-badge-ok-fg: #a5d6a7;
+    --oc-badge-err-bg: #b71c1c;
+    --oc-badge-err-fg: #ef9a9a;
+    --oc-badge-warn-fg: #ffcc02;
+    /* opening-cards Open=High/Low markers */
+    --oc-hilo-high: #4caf50;
+    --oc-hilo-low: #ff9800;
+    /* OI change prefix glyphs */
+    --oc-light-blue: #4fc3f7;
+    --oc-gold: #ffd700;
 }
+
+/* ── NSE status bar & badges ──────────────────────────────────────────── */
+.nse-status-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--oc-panel-alt);
+    border: 1px solid var(--oc-panel-border);
+    border-radius: 8px;
+    font-family: monospace;
+}
+.nse-status-bar__text { font-weight: bold; font-size: 13px; }
+.nse-status-bar__text--ok { color: var(--oc-badge-ok-fg); }
+.nse-status-bar__text--warn { color: var(--oc-badge-warn-fg); }
+.nse-status-bar__date { color: var(--oc-muted-dark); font-size: 11px; }
+.nse-status-badge {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin: 0 3px;
+}
+.nse-status-badge--ok  { background: var(--oc-badge-ok-bg);  color: var(--oc-badge-ok-fg); }
+.nse-status-badge--err { background: var(--oc-badge-err-bg); color: var(--oc-badge-err-fg); }
+
+/* ── Opening-cards Open=High / Open=Low markers ───────────────────────── */
+.oc-card__sub--hilo { margin-top: 3px; }
+.oc-hilo--low-eq  { color: var(--oc-hilo-low);  font-weight: 600; }
+.oc-hilo--low     { color: var(--oc-hilo-low); }
+.oc-hilo--high-eq { color: var(--oc-hilo-high); font-weight: 600; }
+.oc-hilo--high    { color: var(--oc-hilo-high); }
+
+/* ── OI change prefix glyphs (table cells) ────────────────────────────── */
+.oi-chg-prefix--bar { color: var(--oc-light-blue); }
+.oi-chg-prefix--dot { color: var(--oc-gold); }
 
 /* ── Gradio-level overrides ───────────────────────────────────────────── */
 .gradio-container {

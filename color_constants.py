@@ -60,6 +60,7 @@ OI_RANK_PUT = {1: '#32dc32', 2: '#00e676', 3: '#adff2f'}    # limegreen / green 
 #^# UI / THEME COLORS
 # ═══════════════════════════════════════════════════════════════════════════
 MUTED = '#888'            # muted / disabled
+MUTED_DARK = '#888888'    # explicit 6-digit muted (for Rich / plotly)
 MUTED_LIGHT = '#9aa4ad'   # lighter muted — TF indicator no-data, plotly labels
 TEXT_DEFAULT = '#e0e0e0'  # default text
 TEXT_GREEN = '#69f0ae'    # net positive
@@ -68,6 +69,33 @@ TEXT_LIGHT = '#cfd8dc'    # plotly font / chart text
 ATM_BG = '#000'           # ATM row text color (black on gold)
 NEUTRAL_PURPLE = '#FFFFFF'   # RSI line & label (white)
 RED_BRIGHT = '#ff5252'    # RSI oversold / EMA signal line
+
+# ═══════════════════════════════════════════════════════════════════════════
+#^# STATUS BADGE COLORS — NSE data availability badges
+# ═══════════════════════════════════════════════════════════════════════════
+BADGE_OK_BG = '#1b5e20'    # dark green — success background
+BADGE_OK_FG = '#a5d6a7'    # light green — success foreground
+BADGE_ERR_BG = '#b71c1c'   # dark red — error background
+BADGE_ERR_FG = '#ef9a9a'   # light red — error foreground
+BADGE_WARN_FG = '#ffcc02'  # amber — warning text
+BADGE_PANEL_BG = '#1a1a2e' # alternate panel background (status bar)
+BADGE_PANEL_BORDER = '#2a3140'  # status bar border
+
+# ═══════════════════════════════════════════════════════════════════════════
+#^# OPEN=HIGH / OPEN=LOW MARKER COLORS
+# ═══════════════════════════════════════════════════════════════════════════
+HILO_HIGH = '#4caf50'      # green — Open = High marker
+HILO_LOW = '#ff9800'       # orange — Open = Low marker (same as DEEP_ORANGE)
+
+# ═══════════════════════════════════════════════════════════════════════════
+#^# TUI / RICH BORDER & BACKGROUND COLORS
+# ═══════════════════════════════════════════════════════════════════════════
+BORDER_GRAY_DARK = '#555555'   # panel borders — data
+BORDER_GRAY_DARKER = '#444444' # panel borders — log
+TUI_HEADER_BG = '#1a1a2e'      # Rich table header background
+TUI_ATM_BG = '#1e1e3a'         # Rich ATM row background
+OH_MARKER = '#ff6d00'          # Open=High marker in Rich TUI
+OL_MARKER = '#2979ff'          # Open=Low marker in Rich TUI
 
 # ═══════════════════════════════════════════════════════════════════════════
 #^# CHART / PLOTLY COLORS
