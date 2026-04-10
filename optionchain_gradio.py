@@ -2945,6 +2945,49 @@ _last_valid_futures_html: str = ''  #~# Cache last non-empty futures buildup HTM
 #~# Used to preserve Build Up column display when market closes (oi_chg=0 → buildup="-")
 _last_valid_buildup: dict[tuple[str, int], dict[str, str]] = {}
 
+#~# ── Background data heartbeat ─────────────────────────────────────────
+#~# Pre-warms option-chain data on its own thread so smart_refresh becomes
+#~# a cache read instead of a blocking network fetch. Runs independently
+#~# of the browser — keeps data fresh even when no client is connected.
+import threading as _bg_threading
+_bg_heartbeat_data: dict = {}
+_bg_heartbeat_ts: float = 0.0
+_bg_heartbeat_lock = _bg_threading.Lock()
+_bg_heartbeat_params: tuple = ("NIFTY", 0, 15)  #~# updated on first smart_refresh
+_bg_heartbeat_started: bool = False
+_BG_HEARTBEAT_INTERVAL = 2.0  #~# seconds between background fetches
+
+def _bg_heartbeat_loop():
+    """Daemon: periodically pre-fetches data into _bg_heartbeat_data."""
+    global _bg_heartbeat_data, _bg_heartbeat_ts
+    import time as _t
+    while True:
+        try:
+            with _bg_heartbeat_lock:
+                u, e, n = _bg_heartbeat_params
+            d = fetch_all_data(str(u), int(e), int(n))
+            if d and not d.get('error'):
+                with _bg_heartbeat_lock:
+                    _bg_heartbeat_data = d
+                    _bg_heartbeat_ts = _t.time()
+        except Exception as _err:
+            try:
+                _tui.log_error(f"bg-heartbeat: {_err}")
+            except Exception:
+                pass
+        _t.sleep(_BG_HEARTBEAT_INTERVAL)
+
+def _ensure_bg_heartbeat(underlying, expiry_idx, num_strikes):
+    """Start the background thread once, update params on every call."""
+    global _bg_heartbeat_started, _bg_heartbeat_params
+    with _bg_heartbeat_lock:
+        _bg_heartbeat_params = (underlying, expiry_idx, num_strikes)
+    if not _bg_heartbeat_started:
+        _bg_heartbeat_started = True
+        _bg_threading.Thread(target=_bg_heartbeat_loop, daemon=True, name="oc-bg-heartbeat").start()
+        try: _tui.log_info("bg-heartbeat started")
+        except Exception: pass
+
 
 def refresh_data(underlying, expiry_idx, num_strikes):
     """* Full refresh - fetches all data including option chain.
@@ -3221,7 +3264,16 @@ def smart_refresh(underlying, expiry_idx, num_strikes):
         #^# P1: Full option chain refresh (always)
         try:
             t_oc = _time.time()
-            data = fetch_all_data(underlying, int(expiry_idx), int(num_strikes))
+            #~# Prefer pre-warmed background-heartbeat data if it's fresh (<2s old).
+            #~# Falls through to a direct fetch on cold start or if bg thread is lagging.
+            _ensure_bg_heartbeat(underlying, int(expiry_idx), int(num_strikes))
+            with _bg_heartbeat_lock:
+                _bg_d = _bg_heartbeat_data
+                _bg_age = _time.time() - _bg_heartbeat_ts if _bg_heartbeat_ts else 1e9
+            if _bg_d and _bg_age < (_BG_HEARTBEAT_INTERVAL + 1.0):
+                data = _bg_d
+            else:
+                data = fetch_all_data(underlying, int(expiry_idx), int(num_strikes))
             dt_oc = _time.time() - t_oc
 
             if data['error']:
@@ -3602,53 +3654,46 @@ window.ocSortCol = ocSortCol;
     setInterval(updateAllTimestamps, 2000);
 })();
 
-// ── Tab visibility — gentle resync only, no page reload ───────────────
-// IMPORTANT: Do NOT trigger full refreshes or reloads on idle ticks.
-// The backend's smart_refresh does per-panel skip on every 3s tick, so
-// "no DOM mutation" is normal and expected — it is NOT a staleness signal.
+// Background-throttle defeat — keep WS frames flowing on hidden/minimized tabs.
+// Silent Web Audio exempts the tab from Chromium throttling; a Web Worker
+// posts ticks every 500ms on its own thread to wake the main loop so the
+// Gradio WS client drains queued frames. No reloads, no auto-clicks.
 (function() {
-    var _wasHidden = false;
-    var _hiddenAt = 0;
-    var _longAwayMs = 300000;  // 5 min away = reload (WS likely dead)
-
-    document.addEventListener('visibilitychange', function() {
-        if (document.hidden) {
-            _wasHidden = true;
-            _hiddenAt = Date.now();
-        } else if (_wasHidden) {
-            _wasHidden = false;
-            var awayMs = Date.now() - _hiddenAt;
-            console.log('[OC] Tab visible after ' + (awayMs/1000).toFixed(0) + 's away');
-            if (typeof updateAllTimestamps === 'function') updateAllTimestamps();
-            // Only reload if away long enough that the Gradio WS likely dropped.
-            // Short Alt-Tabs: do nothing — the 3s Timer already keeps data fresh.
-            if (awayMs > _longAwayMs) {
-                console.log('[OC] Away >5min — reloading for fresh WS connection');
-                setTimeout(function() { window.location.reload(); }, 500);
+    try {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) {
+            var ctx = new AC();
+            var osc = ctx.createOscillator();
+            var gain = ctx.createGain();
+            gain.gain.value = 0.0001;
+            osc.frequency.value = 1;
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.start();
+            if (ctx.state === 'suspended') {
+                var _resume = function() {
+                    ctx.resume();
+                    document.removeEventListener('click', _resume);
+                    document.removeEventListener('keydown', _resume);
+                    document.removeEventListener('touchstart', _resume);
+                };
+                document.addEventListener('click', _resume);
+                document.addEventListener('keydown', _resume);
+                document.addEventListener('touchstart', _resume);
             }
+            window._ocAudioCtx = ctx;
         }
-    });
-    // Prevent browser tab throttling by keeping a minimal wake lock
-    function _keepAlive() {
-        requestAnimationFrame(_keepAlive);
-    }
-    _keepAlive();
-})();
+    } catch (e) { console.warn('[OC] silent audio keep-alive failed:', e); }
 
-// ── Browser health monitor — only reload on genuine OOM risk ──────────
-// NO periodic reload. NO heartbeat reload. Only reload if Chrome heap
-// is genuinely about to OOM (>2500MB). The per-panel skip in the
-// backend keeps heap pressure low in steady state.
-(function() {
-    setInterval(function() {
-        if (window.performance && window.performance.memory) {
-            var usageMB = window.performance.memory.usedJSHeapSize / (1024 * 1024);
-            if (usageMB > 2500) {
-                console.warn('[OC] JS heap at ' + usageMB.toFixed(0) + 'MB — reloading to avoid OOM');
-                window.location.reload();
-            }
-        }
-    }, 60000);
+    try {
+        var blob = new Blob(
+            ["setInterval(function(){postMessage('tick');},500);"],
+            { type: 'application/javascript' });
+        var worker = new Worker(URL.createObjectURL(blob));
+        worker.onmessage = function() {
+            if (document.hidden) { var _t = performance.now(); void _t; }
+        };
+        window._ocWorker = worker;
+    } catch (e) { console.warn('[OC] worker keep-alive failed:', e); }
 })();
 """
 
