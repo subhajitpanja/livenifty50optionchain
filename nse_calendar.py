@@ -97,17 +97,15 @@ def get_last_trading_date() -> _dt.date:
     Return the most recent trading date.
 
     Rule: if it's before 16:00 IST we haven't finished today's session yet,
-    so roll back to yesterday; then skip weekends. Used to check whether
-    previous-day CSV files exist on disk.
-
-    NOTE: this does NOT skip NSE holidays — historically the download
-    script handles that separately. Preserve that behaviour.
+    so roll back to yesterday; then skip weekends AND NSE holidays so the
+    returned date is always a real trading session for which CSV files
+    could plausibly exist.
     """
     now_ist = _now_ist()
     d = now_ist.date()
     t = now_ist.time()
     if t < _dt.time(16, 0):
         d -= _dt.timedelta(days=1)
-    while d.weekday() >= 5:
+    while d.weekday() >= 5 or str(d) in NSE_HOLIDAYS:
         d -= _dt.timedelta(days=1)
     return d

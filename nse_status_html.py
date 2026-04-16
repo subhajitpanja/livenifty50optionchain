@@ -4,7 +4,7 @@ NSE data-file status badge + auto-downloader helpers.
 - check_nse_data_status()   → which CSVs exist for the last trading date
 - nse_data_status_html()    → rendered HTML badge for the Gradio UI
 - run_nse_download()        → spawn scripts/download_nse_data.py
-- should_auto_download()    → True after 9 PM IST when any file is missing
+- should_auto_download()    → True before 9 AM / after 9 PM IST when any file is missing
 
 Logging/TUI is injected via `set_logger` so this module stays detached from
 optionchain_gradio.py.
@@ -130,12 +130,12 @@ def run_nse_download() -> str:
 
 
 def should_auto_download() -> bool:
-    """True when it's after 21:00 IST and at least one data file is missing."""
+    """True outside market hours (before 09:00 IST or after 21:00 IST) when any data file is missing."""
     try:
         now_ist = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=5, minutes=30)))
     except Exception:
         now_ist = _dt.datetime.now()
-    if now_ist.hour < 21:
+    if 9 <= now_ist.hour < 21:
         return False
     st = check_nse_data_status()
     return not (st['option_chain'] and st['futures'] and st['vix'])

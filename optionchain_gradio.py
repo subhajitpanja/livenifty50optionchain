@@ -1690,39 +1690,42 @@ def _build_one_straddle_chart(strike, open_price, underlying, expiry_idx, chart_
             return fc.get('fig')
 
         #~# 15-day lookback: check today → yesterday → day-2 → … → day-15
-        ce_dates = ce_df['timestamp'].astype(str).str[:10]
-        pe_dates = pe_df['timestamp'].astype(str).str[:10]
-        #~# Find a date present in BOTH CE and PE data
+        #~# Merge ALL multi-day CE+PE data first for proper RSI warm-up,
+        #~# then filter to today for display.  TradingView uses continuous
+        #~# multi-day data — without this warm-up our RSI diverges.
+        m_full = pd.merge(
+            ce_df[['timestamp','open','high','low','close','volume']].rename(
+                columns={'open':'ce_o','high':'ce_h','low':'ce_l','close':'ce_c','volume':'ce_v'}),
+            pe_df[['timestamp','open','high','low','close','volume']].rename(
+                columns={'open':'pe_o','high':'pe_h','low':'pe_l','close':'pe_c','volume':'pe_v'}),
+            on='timestamp', how='inner',
+        ).sort_values('timestamp').reset_index(drop=True)
+        if m_full.empty:
+            return fc.get('fig')
+
+        m_full['s_open']  = m_full['ce_o'] + m_full['pe_o']
+        m_full['s_high']  = m_full['ce_h'] + m_full['pe_h']
+        m_full['s_low']   = m_full['ce_l'] + m_full['pe_l']
+        m_full['s_close'] = m_full['ce_c'] + m_full['pe_c']
+        m_full['s_vol']   = m_full['ce_v'] + m_full['pe_v']
+
+        #~# Compute RSI on FULL multi-day straddle close for proper EWM warm-up
+        m_full['rsi'] = _calc_rsi(m_full['s_close'], 14)
+
+        #~# Now filter to target date for display
+        m_full_dates = m_full['timestamp'].astype(str).str[:10]
         _label = f"Chart exp={expiry_idx} tf={timeframe}"
-        found_date, days_back = _find_last_trading_day(ce_dates, _label)
+        found_date, days_back = _find_last_trading_day(m_full_dates, _label)
         _using_last_day = days_back > 0
         if found_date is None:
             return fc.get('fig')
-        ce_today = ce_df[ce_dates == found_date].copy()
-        pe_today = pe_df[pe_dates == found_date].copy()
-        if ce_today.empty or pe_today.empty:
-            return fc.get('fig')
-
-        m = pd.merge(
-            ce_today[['timestamp','open','high','low','close','volume']].rename(
-                columns={'open':'ce_o','high':'ce_h','low':'ce_l','close':'ce_c','volume':'ce_v'}),
-            pe_today[['timestamp','open','high','low','close','volume']].rename(
-                columns={'open':'pe_o','high':'pe_h','low':'pe_l','close':'pe_c','volume':'pe_v'}),
-            on='timestamp', how='inner',
-        )
+        m = m_full[m_full_dates == found_date].copy().reset_index(drop=True)
         if m.empty:
             return fc.get('fig')
 
-        m['s_open']  = m['ce_o'] + m['pe_o']
-        m['s_high']  = m['ce_h'] + m['pe_h']
-        m['s_low']   = m['ce_l'] + m['pe_l']
-        m['s_close'] = m['ce_c'] + m['pe_c']
-        m['s_vol']   = m['ce_v'] + m['pe_v']
-
         #~# Per-leg VWAP: compute VWAP for CE and PE separately, then sum.
-        #~# Using combined s_high/s_low inflates the range (CE & PE highs/lows
-        #~# don't coincide — they're anti-correlated), distorting VWAP upward
-        #~# especially on larger timeframes like 15-min.
+        #~# VWAP resets daily (uses only today's data), unlike RSI which
+        #~# needs multi-day warm-up.
         ce_tp      = (m['ce_h'] + m['ce_l'] + m['ce_c']) / 3
         pe_tp      = (m['pe_h'] + m['pe_l'] + m['pe_c']) / 3
         ce_cum_tpv = (ce_tp * m['ce_v'].fillna(0)).cumsum()
@@ -1730,7 +1733,6 @@ def _build_one_straddle_chart(strike, open_price, underlying, expiry_idx, chart_
         pe_cum_tpv = (pe_tp * m['pe_v'].fillna(0)).cumsum()
         pe_cum_vol = m['pe_v'].fillna(0).cumsum().replace(0, float('nan'))
         m['vwap']  = (ce_cum_tpv / ce_cum_vol) + (pe_cum_tpv / pe_cum_vol)
-        m['rsi']     = _calc_rsi(m['s_close'], 14)
 
         opening_straddle = float(m['s_open'].iloc[0])
         current_straddle = float(m['s_close'].iloc[-1])
@@ -1998,38 +2000,43 @@ def _build_strike_straddle_chart(strike: int, open_price: float,
                 or ce_df.empty or pe_df.empty):
             return fc.get('fig')
 
-        #~# 15-day lookback: check today → yesterday → day-2 → … → day-15
-        ce_dates = ce_df['timestamp'].astype(str).str[:10]
-        pe_dates = pe_df['timestamp'].astype(str).str[:10]
-        _label = f"Chart-WS strike={strike} tf={timeframe}"
-        found_date, days_back = _find_last_trading_day(ce_dates, _label)
-        _using_last_day = days_back > 0
-        if found_date is None:
-            return fc.get('fig')
-        ce_today = ce_df[ce_dates == found_date].copy()
-        pe_today = pe_df[pe_dates == found_date].copy()
-        if ce_today.empty or pe_today.empty:
-            return fc.get('fig')
-
-        m = pd.merge(
-            ce_today[['timestamp', 'open', 'high', 'low', 'close', 'volume']].rename(
+        #~# Merge ALL multi-day CE+PE data first for proper RSI warm-up,
+        #~# then filter to today for display.  TradingView uses continuous
+        #~# multi-day data — without this warm-up our RSI diverges.
+        m_full = pd.merge(
+            ce_df[['timestamp', 'open', 'high', 'low', 'close', 'volume']].rename(
                 columns={'open': 'ce_o', 'high': 'ce_h', 'low': 'ce_l',
                          'close': 'ce_c', 'volume': 'ce_v'}),
-            pe_today[['timestamp', 'open', 'high', 'low', 'close', 'volume']].rename(
+            pe_df[['timestamp', 'open', 'high', 'low', 'close', 'volume']].rename(
                 columns={'open': 'pe_o', 'high': 'pe_h', 'low': 'pe_l',
                          'close': 'pe_c', 'volume': 'pe_v'}),
             on='timestamp', how='inner',
-        )
+        ).sort_values('timestamp').reset_index(drop=True)
+        if m_full.empty:
+            return fc.get('fig')
+
+        m_full['s_open']  = m_full['ce_o'] + m_full['pe_o']
+        m_full['s_high']  = m_full['ce_h'] + m_full['pe_h']
+        m_full['s_low']   = m_full['ce_l'] + m_full['pe_l']
+        m_full['s_close'] = m_full['ce_c'] + m_full['pe_c']
+        m_full['s_vol']   = m_full['ce_v'] + m_full['pe_v']
+
+        #~# Compute RSI on FULL multi-day straddle close for proper EWM warm-up
+        m_full['rsi'] = _calc_rsi(m_full['s_close'], 14)
+
+        #~# Now filter to target date for display
+        m_full_dates = m_full['timestamp'].astype(str).str[:10]
+        _label = f"Chart-WS strike={strike} tf={timeframe}"
+        found_date, days_back = _find_last_trading_day(m_full_dates, _label)
+        _using_last_day = days_back > 0
+        if found_date is None:
+            return fc.get('fig')
+        m = m_full[m_full_dates == found_date].copy().reset_index(drop=True)
         if m.empty:
             return fc.get('fig')
 
-        m['s_open']  = m['ce_o'] + m['pe_o']
-        m['s_high']  = m['ce_h'] + m['pe_h']
-        m['s_low']   = m['ce_l'] + m['pe_l']
-        m['s_close'] = m['ce_c'] + m['pe_c']
-        m['s_vol']   = m['ce_v'] + m['pe_v']
-
-        #~# Per-leg VWAP: compute VWAP for CE and PE separately, then sum.
+        #~# Per-leg VWAP: resets daily (uses only today's data), unlike RSI
+        #~# which needs multi-day warm-up.
         ce_tp      = (m['ce_h'] + m['ce_l'] + m['ce_c']) / 3
         pe_tp      = (m['pe_h'] + m['pe_l'] + m['pe_c']) / 3
         ce_cum_tpv = (ce_tp * m['ce_v'].fillna(0)).cumsum()
@@ -2037,7 +2044,6 @@ def _build_strike_straddle_chart(strike: int, open_price: float,
         pe_cum_tpv = (pe_tp * m['pe_v'].fillna(0)).cumsum()
         pe_cum_vol = m['pe_v'].fillna(0).cumsum().replace(0, float('nan'))
         m['vwap'] = (ce_cum_tpv / ce_cum_vol) + (pe_cum_tpv / pe_cum_vol)
-        m['rsi']  = _calc_rsi(m['s_close'], 14)
 
         opening_straddle = float(m['s_open'].iloc[0])
         current_straddle = float(m['s_close'].iloc[-1])
@@ -3792,12 +3798,12 @@ with gr.Blocks(title="NIFTY Option Chain Live") as demo:
     #~# Initial load — replaces the loader with real data (hidden progress so no extra fade)
     demo.load(fn=refresh_data, inputs=ins, outputs=outs, show_progress="hidden")
 
-    #~# Auto-download: after 9 PM IST, if data is missing, trigger download on page load
+    #~# Auto-download: outside market hours (before 9 AM / after 9 PM IST), if data is missing, trigger download on page load
     #~# Always register the function to keep fn_index stable across restarts;
     #~# the callback no-ops when data is already present.
     def _auto_download_if_needed():
         if _should_auto_download():
-            _tui.log_info("After 9 PM IST with missing data — auto-triggering NSE download")
+            _tui.log_info("Outside market hours with missing data — auto-triggering NSE download")
             return _run_nse_download()
         return _nse_data_status_html()
     demo.load(fn=_auto_download_if_needed, inputs=[], outputs=[nse_status_out], show_progress="minimal")

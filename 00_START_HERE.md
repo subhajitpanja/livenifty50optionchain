@@ -223,6 +223,7 @@ Then open: **http://localhost:7860**
 - **Troubleshooting:** See `STARTUP.md`
 - **Verification:** See `SETUP_CHECKLIST.md`
 - **Code Comments:** Read `optionchain_gradio.py`
+- **AI Token Optimization (Claude Code):** See `CLAUDE.md`
 
 ---
 

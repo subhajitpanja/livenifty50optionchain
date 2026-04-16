@@ -174,6 +174,22 @@ The app automatically detects:
 - Ensure `templates/css/` directory exists
 - Add HTML template files as needed
 
+## AI Token Optimization
+
+This project ships with a token-reduction pipeline for Claude Code sessions. See [CLAUDE.md](CLAUDE.md) for the rules Claude follows here.
+
+- **claude-mem** — persistent cross-session memory (installed user-scope via Claude Code plugins)
+- **caveman** — compresses CLAUDE.md / large docs (~46% savings). Run `/caveman:compress <file>` on demand.
+- **code-review-graph** — local SQLite knowledge graph of the repo for ~8× cheaper code Q&A. CLI at `.venv/Scripts/code-review-graph`.
+
+Reinstall (one-time, user scope):
+```bash
+npx claude-mem install
+claude plugin marketplace add JuliusBrussee/caveman && claude plugin install caveman@caveman
+```
+
+Note: these apply only inside Claude Code. Copilot / Antigravity use their own context pipelines.
+
 ## Performance Notes
 
 - Option chain refreshes every 3 seconds during market hours

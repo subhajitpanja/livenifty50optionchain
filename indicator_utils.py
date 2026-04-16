@@ -20,27 +20,27 @@ import pandas as pd
 # ══════════════════════════════════════════════════════════════════════════
 def calc_rsi(series: pd.Series, period: int = 14) -> pd.Series:
     """
-    Compute RSI(period) on a price series using Wilder's smoothing.
+    Compute RSI(period) matching TradingView's exact algorithm:
 
-    Correctly handles the three degenerate cases that the old implementation
-    got wrong:
+      Phase 1 (bar 1 .. period):  SMA seed — simple average of gains/losses
+                                  over the first `period` changes.
+      Phase 2 (bar period+1 ..):  Wilder's smoothing —
+                                  avg = (prev_avg * (period-1) + current) / period
 
-      1. avg_loss == 0  and avg_gain  > 0  →  RSI = 100  (all gains)
-      2. avg_gain == 0  and avg_loss  > 0  →  RSI =   0  (all losses)
-      3. avg_gain == 0  and avg_loss == 0  →  RSI =  50  (flat price)
+    This two-phase approach prevents the early-bar overshoot that a pure EWM
+    produces (e.g. RSI spiking above 70 when TradingView stays below 60).
 
-    The previous version did
-        rs = avg_gain / avg_loss.replace(0, NaN).fillna(inf)
-    which turned case (1) into `rs = gain / inf = 0`, producing **RSI = 0**
-    for a rallying series — the exact bug that caused straddle charts to
-    display an RSI of 0 during strong trends.
+    Edge cases:
+      avg_loss == 0 and avg_gain > 0  →  RSI = 100  (all gains)
+      avg_gain == 0 and avg_loss > 0  →  RSI =   0  (all losses)
+      avg_gain == 0 and avg_loss == 0 →  RSI =  50  (flat / no movement)
 
     Parameters
     ----------
     series : pd.Series
         Price series (typically the straddle close).
     period : int
-        Lookback window (default 14, the classic RSI period).
+        Lookback window (default 14).
 
     Returns
     -------
@@ -50,29 +50,49 @@ def calc_rsi(series: pd.Series, period: int = 14) -> pd.Series:
     if series is None or len(series) == 0:
         return pd.Series(dtype=float)
 
-    # First diff is NaN — fill with 0 so EWM has a stable starting point.
-    delta = series.diff().fillna(0.0)
-    gain  = delta.clip(lower=0)
-    loss  = -delta.clip(upper=0)
+    delta = series.diff()
+    gain  = delta.clip(lower=0).fillna(0.0)
+    loss  = (-delta.clip(upper=0)).fillna(0.0)
 
-    # Wilder's smoothing ≡ EWM with alpha = 1/period, adjust=False.
-    # min_periods=period makes the first (period-1) rows NaN, which is the
-    # textbook behaviour — the UI has an `.dropna().iloc[-1]` fallback for
-    # early-session bars.
-    avg_gain = gain.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+    n = len(series)
+    avg_gain = np.full(n, np.nan)
+    avg_loss = np.full(n, np.nan)
 
-    # Compute RS safely; we override edge cases explicitly below.
+    gain_vals = gain.values
+    loss_vals = loss.values
+
+    if n <= period:
+        # Not enough bars for a full SMA seed — use running SMA so RSI is
+        # available from bar 2 onward (critical for early-session charts).
+        cum_g = 0.0
+        cum_l = 0.0
+        for i in range(n):
+            cum_g += gain_vals[i]
+            cum_l += loss_vals[i]
+            count = i + 1
+            if count >= 2:  # need at least 1 price change
+                avg_gain[i] = cum_g / count
+                avg_loss[i] = cum_l / count
+    else:
+        # Phase 1: SMA seed over first `period` bars
+        avg_gain[period] = np.mean(gain_vals[1:period + 1])
+        avg_loss[period] = np.mean(loss_vals[1:period + 1])
+
+        # Phase 2: Wilder's smoothing
+        for i in range(period + 1, n):
+            avg_gain[i] = (avg_gain[i - 1] * (period - 1) + gain_vals[i]) / period
+            avg_loss[i] = (avg_loss[i - 1] * (period - 1) + loss_vals[i]) / period
+
+    avg_gain = pd.Series(avg_gain, index=series.index)
+    avg_loss = pd.Series(avg_loss, index=series.index)
+
+    # Compute RSI; handle edge cases explicitly
     with np.errstate(divide='ignore', invalid='ignore'):
         rs  = avg_gain / avg_loss
         rsi = 100.0 - (100.0 / (1.0 + rs))
 
-    # Edge cases:
-    #   flat  → 50   (no movement either way)
-    #   rally → 100  (gains only, no losses)
     flat  = (avg_gain == 0) & (avg_loss == 0)
     rally = (avg_loss == 0) & (avg_gain > 0)
-
     rsi = rsi.mask(flat,  50.0)
     rsi = rsi.mask(rally, 100.0)
 
